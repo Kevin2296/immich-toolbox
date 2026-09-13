@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Immich Toolbox bootstrap v0.5.2
-# Loads the tested v0.4.0 installer core and applies compatibility, UX and dashboard fixes.
+# Immich Toolbox bootstrap v1.0.0
+# Stable Custom App release. Loads the tested v0.4.0 installer core and applies compatibility, UX and dashboard fixes.
 
 BASE_COMMIT="4af57763fd925c443e07bb0e96eeb1e5d0326f1d"
 RAW_URL="https://raw.githubusercontent.com/Kevin2296/immich-toolbox/${BASE_COMMIT}/install.sh"
@@ -21,7 +21,7 @@ import sys
 p = Path(sys.argv[1])
 s = p.read_text()
 
-s = s.replace('TOOLBOX_VERSION="0.4.0"', 'TOOLBOX_VERSION="0.5.2"', 1)
+s = s.replace('TOOLBOX_VERSION="0.4.0"', 'TOOLBOX_VERSION="1.0.0"', 1)
 
 # TrueNAS app.update: strip create-only fields.
 old = "d=json.load(open(sys.argv[1])); d.pop('app_name',None); print(json.dumps(d))"
@@ -44,7 +44,6 @@ if start != -1:
         end += len(end_marker)
         replacement = "let latest=(await fetch('https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/version.txt?'+Date.now()).then(r=>r.text())).trim();if(!latest)throw 0;"
         s = s[:start] + replacement + s[end:]
-# If the old checker is not present, continue; dashboard still works and installer must not abort.
 
 s = s.replace('One dashboard for your Immich companion tools',
               'Manage your Immich companion tools in one place', 1)
@@ -101,6 +100,26 @@ case "$LANG_CODE" in
   *)  say "${BOLD}Summary${RESET}";;
 esac
 ''', 1)
+
+# A few high-visibility prompts in the update path.
+s = s.replace('yesno "Keep these settings and update only the Toolbox version/dashboard?" Y',
+'''case "$LANG_CODE" in
+  nl) yesno "Deze instellingen behouden en alleen Toolbox/dashboard bijwerken?" Y;;
+  de) yesno "Diese Einstellungen behalten und nur Toolbox/Dashboard aktualisieren?" Y;;
+  *)  yesno "Keep these settings and update only the Toolbox version/dashboard?" Y;;
+esac''', 1)
+s = s.replace('yesno "Apply update now?" Y',
+'''case "$LANG_CODE" in
+  nl) yesno "Update nu uitvoeren?" Y;;
+  de) yesno "Update jetzt ausführen?" Y;;
+  *)  yesno "Apply update now?" Y;;
+esac''', 1)
+s = s.replace('say "  API key:      ✓ found (hidden)"',
+'''case "$LANG_CODE" in
+  nl) say "  API key:      ✓ gevonden (verborgen)";;
+  de) say "  API key:      ✓ gefunden (verborgen)";;
+  *)  say "  API key:      ✓ found (hidden)";;
+esac''', 1)
 
 # Clean final status screen.
 old_tail = 'say; say "Dashboard: http://${DETECTED_IP}:${DASHBOARD_PORT}"'
