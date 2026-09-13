@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-APP_NAME="immichtoolbox"; TOOLBOX_VERSION="0.2.1"
+APP_NAME="immichtoolbox"; TOOLBOX_VERSION="0.2.2"
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:1.0.0"
 PET_IMAGE="ghcr.io/tedornitier/immich-pet-tagger:cpu"
 POWER_IMAGE="ghcr.io/immich-power-tools/immich-power-tools:v0.22.0"
@@ -30,7 +30,8 @@ EF=false; EP=false; EW=false; yesno "$(tr folder)" Y && EF=true; yesno "$(tr pet
 showperm(){ say; say "${BOLD}Immich API key${RESET}"; say "$(tr api)"; say
 $EF && { say "${BOLD}Folder → Album Sync${RESET}"; printf '  ✓ %s\n' asset.read album.read album.create album.update albumAsset.create; say; }
 $EP && { say "${BOLD}Pet Tagger${RESET}"; printf '  ✓ %s\n' asset.read asset.view person.create person.read person.update person.delete person.reassign face.create face.read face.delete; say "  ○ tag.create"; say "  ○ tag.asset"; say; }
-$EW && { say "${BOLD}Immich Power Tools${RESET}"; say "  ${YELLOW}$(tr all)${RESET}"; say "  $(tr steps)"; say; }; }
+$EW && { say "${BOLD}Immich Power Tools${RESET}"; say "  ${YELLOW}$(tr all)${RESET}"; say "  $(tr steps)"; say; }
+return 0; }
 showperm; while true; do say "$(tr menu)"; read -rp "> " a; case "${a:-}" in [Vv]) showperm;;[Qq]) exit 0;;"") break;;esac; done
 EX="$($SUDO midclt call app.query 2>/dev/null||echo '[]')"; python3 - "$EX" <<'PY' && die "immichtoolbox already exists"
 import json,sys
