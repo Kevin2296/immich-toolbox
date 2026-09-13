@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Immich Toolbox bootstrap v0.5.1
+# Immich Toolbox bootstrap v0.5.2
 # Loads the tested v0.4.0 installer core and applies compatibility, UX and dashboard fixes.
 
 BASE_COMMIT="4af57763fd925c443e07bb0e96eeb1e5d0326f1d"
@@ -16,12 +16,12 @@ curl -fsSL "$RAW_URL" -o "$TMP"
 
 python3 - "$TMP" <<'PY'
 from pathlib import Path
-import re, sys
+import sys
 
 p = Path(sys.argv[1])
 s = p.read_text()
 
-s = s.replace('TOOLBOX_VERSION="0.4.0"', 'TOOLBOX_VERSION="0.5.1"', 1)
+s = s.replace('TOOLBOX_VERSION="0.4.0"', 'TOOLBOX_VERSION="0.5.2"', 1)
 
 # TrueNAS app.update: strip create-only fields.
 old = "d=json.load(open(sys.argv[1])); d.pop('app_name',None); print(json.dumps(d))"
@@ -34,12 +34,17 @@ s = s.replace(old, new, 1)
 favicon = '''<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='1' x2='1' y2='0'%3E%3Cstop stop-color='%2322c55e'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M14 20h29v7H14zm0 12h24v7H14z' fill='white'/%3E%3Ccircle cx='46' cy='44' r='8' fill='white'/%3E%3Ccircle cx='46' cy='44' r='3.5' fill='%233b82f6'/%3E%3C/svg%3E">'''
 s = s.replace('<title>Immich Toolbox</title><style>', '<title>Immich Toolbox</title>'+favicon+'<style>', 1)
 
-# Dashboard update check: patch robustly, independent of quote escaping in the base script.
-pat = re.compile(r"let t=await fetch\('https://raw\.githubusercontent\.com/Kevin2296/immich-toolbox/main/install\.sh\?'\+Date\.now\(\)\)\.then\(r=>r\.text\(\)\);let m=t\.match\(/TOOLBOX_VERSION=.*?let latest=m\[1\];")
-repl = "let latest=(await fetch('https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/version.txt?'+Date.now()).then(r=>r.text())).trim();if(!latest)throw 0;"
-s, n = pat.subn(repl, s, count=1)
-if n != 1:
-    raise SystemExit("Unable to apply dashboard update-check fix")
+# Dashboard update check. Use marker slicing instead of fragile regex/quote matching.
+start_marker = "let t=await fetch('https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh?'+Date.now())"
+end_marker = "let latest=m[1];"
+start = s.find(start_marker)
+if start != -1:
+    end = s.find(end_marker, start)
+    if end != -1:
+        end += len(end_marker)
+        replacement = "let latest=(await fetch('https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/version.txt?'+Date.now()).then(r=>r.text())).trim();if(!latest)throw 0;"
+        s = s[:start] + replacement + s[end:]
+# If the old checker is not present, continue; dashboard still works and installer must not abort.
 
 s = s.replace('One dashboard for your Immich companion tools',
               'Manage your Immich companion tools in one place', 1)
