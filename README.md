@@ -1,10 +1,10 @@
 # Immich Toolbox for TrueNAS
 
-A community installer that bundles optional Immich companion tools into **one TrueNAS Custom App** with a small launcher dashboard.
+A community installer that bundles optional Immich companion tools into **one TrueNAS Custom App** with a lightweight dashboard.
 
 > This project does not replace or fork Immich and does not bundle the source code of upstream tools. It orchestrates their published container images and keeps attribution to each project.
 
-## Current version: v0.2.4
+## Current version: v0.5.0
 
 ### Included modules
 
@@ -19,35 +19,44 @@ A community installer that bundles optional Immich companion tools into **one Tr
 bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh)
 ```
 
+## Existing installations
+
+Running the installer again detects an existing `immichtoolbox` installation and offers:
+
+1. **Update** — preserve current configuration and Toolbox data
+2. **Reconfigure** — walk through the settings again
+3. **Remove** — remove the Toolbox, with a separate choice to keep or remove managed volumes
+4. **Quit**
+
+A normal update reads the existing API key, Immich URLs, ports, Folder Albums settings, Pet Tagger settings and Power Tools database settings from the running Toolbox containers where possible.
+
+## Dashboard
+
+The dashboard defaults to port `30042` and provides:
+
+- Immich and API-key links
+- Pet Tagger and Power Tools launch buttons
+- Folder → Album configuration details
+- Toolbox version and update check
+- configuration overview and security notes
+- browser favicon / Toolbox branding
+
+Folder → Album Sync is a background service and therefore does not have its own web interface.
+
 ## What the installer does
 
 - language selection: English / Nederlands / Deutsch
 - detects the local Immich TrueNAS container and host port when possible
-- asks for the browser/external Immich URL and derives the API URL
+- separates the browser/external Immich URL from the internal container URL
 - shows a direct link to Immich API-key settings
-- explains the permissions needed by the selected modules
 - uses **one API key named `Immich Toolbox`** for all selected modules
-- validates the API key before installation
-- detects Immich External Libraries via `GET /api/libraries`
-- lets you choose a detected import path for Folder → Album Sync
-- checks whether dashboard/module ports are already in use
-- suggests another free port when a default is occupied
-- attempts to detect the Immich PostgreSQL container/network for Power Tools
-- creates one TrueNAS Custom App named `immichtoolbox`
-
-## Dashboard
-
-The installer includes a lightweight dashboard, default port `30042`.
-
-It links to:
-
-- Immich
-- Immich API-key settings
-- Pet Tagger (when enabled)
-- Immich Power Tools (when enabled)
-- Folder → Album Sync information
-
-The dashboard is currently a launcher/status page, not yet a full settings editor.
+- validates the API key on a new/reconfigured installation
+- detects Immich External Libraries via the Immich API when possible
+- preserves the existing Folder Albums root during normal updates
+- checks dashboard/module ports and suggests a free port when necessary
+- detects the Immich PostgreSQL container/network for Power Tools when possible
+- creates or updates one TrueNAS Custom App named `immichtoolbox`
+- keeps successful TrueNAS middleware JSON out of the terminal while still showing real errors
 
 ## API permissions
 
@@ -92,39 +101,26 @@ SYNC_MODE=0
 
 The Toolbox does not enable automated cleanup/delete behavior by default.
 
-## External Libraries
-
-The installer tries to list the External Libraries configured in Immich and presents their `importPaths` for selection. It does **not** assume that `/external/fotos` exists on other systems.
-
-If automatic detection fails, the installer asks for the path manually.
-
-## Port handling
-
-Defaults:
+## Default ports
 
 - Dashboard: `30042`
 - Pet Tagger: `2287`
 - Power Tools: `8001`
 
-Before installation, the script checks whether each selected port is already listening on the TrueNAS host. If a default port is occupied, it suggests the next available port.
+If a default port is occupied during a fresh installation/reconfigure, the installer suggests the next available port.
 
-## Internal vs browser URL
+## TrueNAS UI note
 
-The installer distinguishes between:
+The current installer deploys Immich Toolbox as a **TrueNAS Custom App**. This means the TrueNAS app details screen still shows generic Custom App metadata/icon even though the Toolbox dashboard has its own branding.
 
-- **Browser/external URL** — the address you use to open Immich, for example `https://photos.example.com`
-- **Internal container URL** — used by Toolbox containers to reach Immich locally, commonly `http://host.docker.internal:<Immich port>` on TrueNAS
-
-The internal URL can be overridden in advanced mode.
+A native TrueNAS Community Catalog package is the next major packaging step; that is what enables first-class TrueNAS metadata, icon, source/homepage, web portal and native app version presentation.
 
 ## Privacy / secrets
 
 No personal server address, API key, pet name, library path, or database password is hardcoded in this repository.
 
-The generated TrueNAS Custom App configuration can contain credentials, so do not post exported app configuration publicly.
+The generated TrueNAS Custom App configuration contains credentials required by the selected services, so do not post exported app configuration publicly.
 
 ## Upstream projects
 
 Immich Toolbox is an independent community project and is not affiliated with Immich, TrueNAS, or the upstream companion-tool authors.
-
-Please report module-specific bugs upstream where appropriate.
