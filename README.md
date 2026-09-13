@@ -1,30 +1,17 @@
 # Immich Toolbox for TrueNAS
 
-A small **community orchestration project** that installs optional Immich companion tools as **one TrueNAS Custom App**.
+A community installer that bundles optional Immich companion tools into **one TrueNAS Custom App** with a small launcher dashboard.
 
-> This project does not replace or fork Immich and does not bundle the source code of the upstream tools. It orchestrates their published container images and keeps attribution to each project.
+> This project does not replace or fork Immich and does not bundle the source code of upstream tools. It orchestrates their published container images and keeps attribution to each project.
 
-## Modules in v0.1.0
+## Current version: v0.2.4
 
-### Folder → Album Sync
-Uses [Salvoxia/immich-folder-album-creator](https://github.com/Salvoxia/immich-folder-album-creator).
+### Included modules
 
-Designed for Immich external libraries where filesystem folders should also appear as Immich albums.
-
-Safe defaults:
-- `MODE=CREATE`
-- `SYNC_MODE=0`
-- no cleanup/delete automation
-
-### Pet Tagger
-Uses [tedornitier/immich-pet-tagger](https://github.com/tedornitier/immich-pet-tagger).
-
-Adds locally-trained pet recognition to Immich and exposes the upstream web UI.
-
-### Immich Power Tools (advanced / optional)
-Uses [immich-power-tools/immich-power-tools](https://github.com/immich-power-tools/immich-power-tools).
-
-Provides bulk people management, album tools, analytics, duplicate tooling and workflows. It needs access to the Immich PostgreSQL database, so this module is **off by default**. The installer attempts to detect an official TrueNAS Immich database container/network, but asks for confirmation of the DB settings.
+- **Folder → Album Sync** using [Salvoxia/immich-folder-album-creator](https://github.com/Salvoxia/immich-folder-album-creator)
+- **Pet Tagger** using [tedornitier/immich-pet-tagger](https://github.com/tedornitier/immich-pet-tagger)
+- **Immich Power Tools** using [immich-power-tools/immich-power-tools](https://github.com/immich-power-tools/immich-power-tools)
+- **Toolbox Dashboard** (always included)
 
 ## One-line installation
 
@@ -32,49 +19,112 @@ Provides bulk people management, album tools, analytics, duplicate tooling and w
 bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh)
 ```
 
-For a local copy:
+## What the installer does
 
-```bash
-chmod +x install.sh
-./install.sh
-```
+- language selection: English / Nederlands / Deutsch
+- detects the local Immich TrueNAS container and host port when possible
+- asks for the browser/external Immich URL and derives the API URL
+- shows a direct link to Immich API-key settings
+- explains the permissions needed by the selected modules
+- uses **one API key named `Immich Toolbox`** for all selected modules
+- validates the API key before installation
+- detects Immich External Libraries via `GET /api/libraries`
+- lets you choose a detected import path for Folder → Album Sync
+- checks whether dashboard/module ports are already in use
+- suggests another free port when a default is occupied
+- attempts to detect the Immich PostgreSQL container/network for Power Tools
+- creates one TrueNAS Custom App named `immichtoolbox`
 
-## Why a shell installer?
+## Dashboard
 
-TrueNAS Custom Apps are easy to create through the middleware API, but their UI metadata is intentionally generic. The shell installer gives a simple interactive setup while still creating **one real app under Apps → Installed Applications**.
+The installer includes a lightweight dashboard, default port `30042`.
 
-A later release can additionally ship the TrueNAS Community Catalog packaging (`questions.yaml`, `app.yaml`, etc.) so the same project can be submitted to the official TrueNAS Apps catalog.
+It links to:
+
+- Immich
+- Immich API-key settings
+- Pet Tagger (when enabled)
+- Immich Power Tools (when enabled)
+- Folder → Album Sync information
+
+The dashboard is currently a launcher/status page, not yet a full settings editor.
 
 ## API permissions
 
-The installer prints the permissions required by the selected modules before it asks for the API key.
+### Folder → Album Sync
 
-For Power Tools, use a dedicated API key with the permissions recommended by that upstream project.
+- `asset.read`
+- `album.read`
+- `album.create`
+- `album.update`
+- `albumAsset.create`
+
+### Pet Tagger
+
+- `asset.read`
+- `asset.view`
+- `person.create`
+- `person.read`
+- `person.update`
+- `person.delete`
+- `person.reassign`
+- `face.create`
+- `face.read`
+- `face.delete`
+
+Optional review-tag permissions:
+
+- `tag.create`
+- `tag.asset`
+
+### Immich Power Tools
+
+When Power Tools is enabled, the installer recommends **Select all / all API permissions** for the shared Toolbox API key.
+
+## Folder → Album safety defaults
+
+Folder → Album Sync is configured with:
+
+```text
+MODE=CREATE
+SYNC_MODE=0
+```
+
+The Toolbox does not enable automated cleanup/delete behavior by default.
+
+## External Libraries
+
+The installer tries to list the External Libraries configured in Immich and presents their `importPaths` for selection. It does **not** assume that `/external/fotos` exists on other systems.
+
+If automatic detection fails, the installer asks for the path manually.
+
+## Port handling
+
+Defaults:
+
+- Dashboard: `30042`
+- Pet Tagger: `2287`
+- Power Tools: `8001`
+
+Before installation, the script checks whether each selected port is already listening on the TrueNAS host. If a default port is occupied, it suggests the next available port.
+
+## Internal vs browser URL
+
+The installer distinguishes between:
+
+- **Browser/external URL** — the address you use to open Immich, for example `https://photos.example.com`
+- **Internal container URL** — used by Toolbox containers to reach Immich locally, commonly `http://host.docker.internal:<Immich port>` on TrueNAS
+
+The internal URL can be overridden in advanced mode.
 
 ## Privacy / secrets
 
-No personal server address, API key, pet name, folder name, or password is hardcoded in this repository.
+No personal server address, API key, pet name, library path, or database password is hardcoded in this repository.
 
-The installer stores the values in the generated TrueNAS Custom App configuration. Do not post exported app configuration publicly because it may contain API/database credentials.
-
-## Planned modules / ideas
-
-Good future candidates:
-- External-library helpers (favorites/metadata sync)
-- Reverse-geocoding helpers
-- Face/album automation
-- Safe duplicate *review* utilities
-- Backup/export helpers
-- optional Immich Kiosk / display tools (probably a separate category)
-
-The goal is not to duplicate features already built into Immich.
+The generated TrueNAS Custom App configuration can contain credentials, so do not post exported app configuration publicly.
 
 ## Upstream projects
 
 Immich Toolbox is an independent community project and is not affiliated with Immich, TrueNAS, or the upstream companion-tool authors.
 
-Please report issues in the correct project:
-- Toolbox installation/orchestration issues → this project
-- Folder Album Creator logic → upstream Folder Album Creator
-- Pet recognition behavior → upstream Pet Tagger
-- Power Tools features → upstream Immich Power Tools
+Please report module-specific bugs upstream where appropriate.
