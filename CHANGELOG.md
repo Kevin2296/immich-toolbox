@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+- Added safe in-place updates when `immichtoolbox` already exists.
+- Existing Toolbox named volumes/data are preserved during updates; the app is no longer deleted/recreated by default.
+- Existing Dashboard, Pet Tagger and Power Tools ports are detected and can be reused during an update.
+- Rebuilt the Toolbox Dashboard with a cleaner responsive layout and detailed module information.
+- Folder → Album Sync is now shown as a background service instead of a fake clickable tool.
+- Dashboard shows External Library/root, album level, schedule, CREATE-only mode and thumbnail mode.
+- Dashboard shows Pet Tagger and Power Tools ports/URLs plus access notes.
+- Added a fuller terminal summary after installation/update, including URLs, access/login information and where to find logs.
+- Added automatic TrueNAS timezone detection instead of hardcoding Europe/Amsterdam.
+
+## 0.2.5
+- Fixed port auto-selection output being mixed with warning text, which caused selected ports to fail integer parsing.
+
 ## 0.2.4
 - Added automatic Immich External Library detection via the Immich API.
 - Lets users choose from detected import paths instead of assuming `/external/fotos`.
