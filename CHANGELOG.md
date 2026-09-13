@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0
+- Polished the installer/update UX and terminal output.
+- Added a concise post-install/update status screen with URLs and container states.
+- Localized key update/status headings for English, Dutch and German.
+- Added a browser-tab favicon for the Toolbox dashboard.
+- Dashboard now shows common Folder → Album schedules in human-readable form.
+- Dashboard update checks use `version.txt` instead of parsing the bootstrap script.
+- Successful TrueNAS middleware JSON output stays hidden; actual errors are still shown.
+- Keeps safe in-place update behavior and preserves existing configuration/data.
+
+## 0.4.2
+- Added browser favicon support.
+- Fixed dashboard update-check version detection.
+- Suppressed the very large successful TrueNAS middleware JSON response.
+
+## 0.4.1
+- Fixed TrueNAS `app.update` payload validation by removing create-only `custom_app` from update requests.
+
+## 0.4.0
+- Added update, reconfigure, remove and quit modes for existing installations.
+- Existing API key, URLs, ports and module settings are read from current containers during update.
+- Existing Folder Albums root, level and schedule are preserved during normal updates.
+- Existing Pet Tagger and Power Tools configuration/data are preserved during normal updates.
+- Added Toolbox removal with keep-data or remove-data choices.
+- Reworked the dashboard into a richer configuration/status overview.
+
 ## 0.3.0
 - Added safe in-place updates when `immichtoolbox` already exists.
 - Existing Toolbox named volumes/data are preserved during updates; the app is no longer deleted/recreated by default.
