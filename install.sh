@@ -2,11 +2,11 @@
 set -Eeuo pipefail
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="0.1.0"
+TOOLBOX_VERSION="0.1.1"
 
 # Pinned upstream versions for reproducible installs.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:1.0.0"
-PET_IMAGE="ghcr.io/tedornitier/immich-pet-tagger:latest"
+PET_IMAGE="ghcr.io/tedornitier/immich-pet-tagger:cpu"
 POWER_IMAGE="ghcr.io/immich-power-tools/immich-power-tools:v0.22.0"
 
 BOLD=$'\033[1m'; DIM=$'\033[2m'
@@ -90,6 +90,7 @@ else
     say "    • asset.view"
     say "    • person.create / person.read / person.update / person.delete / person.reassign"
     say "    • face.create / face.read / face.delete"
+    say "    • tag.create / tag.asset (alleen als review-tagging wordt gebruikt)"
   fi
 fi
 say
