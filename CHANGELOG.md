@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0
+- First stable Immich Toolbox release.
+- Promoted the tested Custom App installer flow to v1.0.0.
+- Keeps safe in-place update behavior and preserves existing configuration/data by default.
+- Includes Folder → Album Sync, Pet Tagger, Immich Power Tools and the Toolbox Dashboard under one TrueNAS app.
+- Includes browser favicon, update checking, human-readable schedules and concise post-install/update status output.
+- Localized the most visible update prompts for English, Dutch and German.
+- Added a stable `v1.0.0` installation branch so the documented installer URL no longer depends on moving `main` content.
+- Native TrueNAS Community Catalog packaging remains a separate next step; v1.0.0 is still deployed as a TrueNAS Custom App.
+
 ## 0.5.0
 - Polished the installer/update UX and terminal output.
 - Added a concise post-install/update status screen with URLs and container states.
