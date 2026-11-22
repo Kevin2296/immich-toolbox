@@ -6,12 +6,13 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.2.0"
+TOOLBOX_VERSION="1.3.0"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
 PET_IMAGE="ghcr.io/tedornitier/immich-pet-tagger:cpu"
 POWER_IMAGE="ghcr.io/immich-power-tools/immich-power-tools:v0.26.0"
+FACE_IMAGE="rbrucker/immich-face-to-album:1.0.17"
 DASHBOARD_IMAGE="nginx:alpine"
 REPO_RAW="https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh"
 CRON_DESCRIPTION="Immich Toolbox auto-update"
@@ -207,6 +208,94 @@ select_root_path(){
   fi
 }
 
+# POST JSON to the Immich API (key on stdin, like immich_get).
+immich_post(){
+  local base="$1" path="$2" body="$3" out
+  out="$(printf 'x-api-key: %s\nContent-Type: application/json\n' "$API_KEY" | curl -sS --max-time 15 -H @- -H 'Accept: application/json' -X POST --data-binary "$body" -w '\n%{http_code}' "${base%/}${path}" 2>/dev/null)" || out=$'\n000'
+  printf '%s' "${out##*$'\n'}" >"$HTTP_CODE_FILE"
+  printf '%s' "${out%$'\n'*}"
+}
+
+# --- Face → Album -------------------------------------------------------------
+# Rules are stored in the container env as
+#   FACE_RULES="albumId|personId,personId|requireAll(0/1)|label;..."
+# Labels are sanitised so the value never contains | ; $ or newlines.
+FACE_RULES=""; FACE_INTERVAL="3600"
+sanitize_label(){ printf '%s' "$1" | tr -d '|;$\t\r\n'; }
+face_rule_count(){ [[ -n "$1" ]] || { printf '0'; return; }; tr ';' '\n' <<<"$1" | grep -c .; }
+configure_face_albums(){
+  local json page people=() albums=() sel n faces names all album_id album_name label x more=true
+  FACE_RULES=""
+  for page in $(seq 1 20); do
+    json="$(immich_get "$BROWSER_URL" "/api/people?withHidden=false&page=${page}&size=500")"
+    if [[ "$(last_http_code)" != 200 ]]; then
+      warn "$(msg "Could not read people from Immich (HTTP $(last_http_code)); the API key needs 'person.read'." "Kon personen niet uit Immich lezen (HTTP $(last_http_code)); de API-key heeft 'person.read' nodig." "Personen konnten nicht gelesen werden (HTTP $(last_http_code)); der API-Key braucht 'person.read'.")"
+      return 1
+    fi
+    mapfile -t -O "${#people[@]}" people < <(python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+for p in d.get("people") or []:
+  n=(p.get("name") or "").strip()
+  if n and p.get("id"): print(p["id"]+"\t"+n.replace("\t"," "))
+' <<<"$json")
+    python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("hasNextPage") else 1)' <<<"$json" 2>/dev/null || break
+  done
+  if ((${#people[@]} == 0)); then
+    warn "$(msg "Immich has no named people yet. Give faces a name in Immich (Explore → People) and run the installer again (option 2)." "Immich heeft nog geen personen met een naam. Geef gezichten een naam in Immich (Verkennen → Mensen) en draai de installer opnieuw (optie 2)." "Immich hat noch keine benannten Personen. Gesichter in Immich benennen (Erkunden → Personen) und Installer erneut starten (Option 2).")"
+    return 1
+  fi
+  mapfile -t people < <(printf '%s\n' "${people[@]}" | sort -t$'\t' -k2,2f)
+  while $more; do
+    json="$(immich_get "$BROWSER_URL" /api/albums)"; albums=()
+    if [[ "$(last_http_code)" == 200 ]]; then
+      mapfile -t albums < <(python3 -c '
+import json,sys
+for a in sorted(json.load(sys.stdin), key=lambda a:(a.get("albumName") or "").lower()):
+  if a.get("id"): print(a["id"]+"\t"+(a.get("albumName") or "(no name)").replace("\t"," "))
+' <<<"$json")
+    fi
+    say; say "$(msg "Named people in Immich:" "Personen met een naam in Immich:" "Benannte Personen in Immich:")"
+    n=1; for row in "${people[@]}"; do printf '  [%d] %s\n' "$n" "${row#*$'\t'}"; ((n++)); done
+    read -rp "$(msg "People for this album (numbers, e.g. 1,3): " "Personen voor dit album (nummers, bv. 1,3): " "Personen für dieses Album (Nummern, z. B. 1,3): ")" sel
+    faces=""; names=""
+    IFS=',' read -ra _sel <<<"${sel// /}"
+    for n in "${_sel[@]}"; do
+      if ! [[ "$n" =~ ^[0-9]+$ ]] || ((n < 1 || n > ${#people[@]})); then continue; fi
+      row="${people[$((n-1))]}"; faces+="${faces:+,}${row%%$'\t'*}"; names+="${names:+, }${row#*$'\t'}"
+    done
+    if [[ -z "$faces" ]]; then warn "$(msg "No valid people selected." "Geen geldige personen gekozen." "Keine gültigen Personen gewählt.")"; continue; fi
+    all=0
+    if [[ "$faces" == *,* ]] && yesno "$(msg "Only photos where ALL selected people appear together?" "Alleen foto's waarop ALLE gekozen personen samen staan?" "Nur Fotos, auf denen ALLE gewählten Personen zusammen sind?")" N; then all=1; fi
+    say "$(msg "Target album:" "Doelalbum:" "Zielalbum:")"
+    say "  [0] $(msg "Create a new album" "Nieuw album aanmaken" "Neues Album anlegen")"
+    n=1; for row in "${albums[@]}"; do printf '  [%d] %s\n' "$n" "${row#*$'\t'}"; ((n++)); done
+    while :; do
+      read -rp "$(msg "Choice" "Keuze" "Auswahl") [0]: " x; x="${x:-0}"
+      if [[ "$x" =~ ^[0-9]+$ ]] && ((x <= ${#albums[@]})); then break; fi
+      warn "$(msg "Enter 0 or one of the album numbers." "Vul 0 of een van de albumnummers in." "0 oder eine der Albumnummern eingeben.")"
+    done
+    if ((x >= 1)); then
+      row="${albums[$((x-1))]}"; album_id="${row%%$'\t'*}"; album_name="${row#*$'\t'}"
+    else
+      read -rp "$(msg "Name of the new album" "Naam van het nieuwe album" "Name des neuen Albums") [$names]: " album_name; album_name="${album_name:-$names}"
+      json="$(immich_post "$BROWSER_URL" /api/albums "$(python3 -c 'import json,sys; print(json.dumps({"albumName":sys.argv[1]}))' "$album_name")")"
+      album_id="$(python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("id") or "")
+except Exception: print("")' <<<"$json")"
+      if [[ -z "$album_id" ]]; then warn "$(msg "Could not create the album (HTTP $(last_http_code)); the API key needs 'album.create'." "Kon het album niet aanmaken (HTTP $(last_http_code)); de API-key heeft 'album.create' nodig." "Album konnte nicht angelegt werden (HTTP $(last_http_code)); der API-Key braucht 'album.create'.")"; continue; fi
+      ok "$(msg "Album '$album_name' created." "Album '$album_name' aangemaakt." "Album '$album_name' angelegt.")"
+    fi
+    label="$(sanitize_label "$album_name ← $names$( ((all)) && printf ' (%s)' "$(msg "together" "samen" "zusammen")")")"
+    FACE_RULES+="${FACE_RULES:+;}${album_id}|${faces}|${all}|${label}"
+    yesno "$(msg "Add another face album?" "Nog een gezichtsalbum toevoegen?" "Weiteres Gesichtsalbum hinzufügen?")" N || more=false
+  done
+  read -rp "$(msg "Sync every how many minutes" "Elke hoeveel minuten synchroniseren" "Alle wie viele Minuten synchronisieren") [60]: " x
+  x="${x:-60}"
+  if ! [[ "$x" =~ ^[0-9]+$ ]] || ((x < 5)); then x=60; fi
+  FACE_INTERVAL=$(( x * 60 ))
+}
+
 # --- Duplicate standalone album creator --------------------------------------
 # A separate TrueNAS app (often called `immichalbums`) running the same
 # immich-folder-album-creator would do the same work twice.
@@ -304,6 +393,7 @@ enabled_images(){
   if $ENABLE_FOLDER; then printf 'folderalbums\t%s\n' "$FOLDER_IMAGE"; fi
   if $ENABLE_PET; then printf 'pettagger\t%s\n' "$PET_IMAGE"; fi
   if $ENABLE_POWER; then printf 'powertools\t%s\n' "$POWER_IMAGE"; fi
+  if $ENABLE_FACE; then printf 'facealbums\t%s\n' "$FACE_IMAGE"; fi
 }
 image_id(){ $SUDO docker image inspect --format '{{.Id}}' "$1" 2>/dev/null || true; }
 # Pull the current images so floating tags (:cpu, :alpine) pick up upstream releases.
@@ -445,7 +535,7 @@ DETECTED_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^(10\.|192\.168\
 DEFAULT_URL=""; [[ -n "$DETECTED_IP" ]] && DEFAULT_URL="http://${DETECTED_IP}:${DETECTED_PORT}"
 TIMEZONE="$(timedatectl show -p Timezone --value 2>/dev/null || true)"; [[ -n "$TIMEZONE" ]] || TIMEZONE="$(cat /etc/timezone 2>/dev/null || true)"; [[ -n "$TIMEZONE" ]] || TIMEZONE="UTC"
 
-ENABLE_FOLDER=false; ENABLE_PET=false; ENABLE_POWER=false
+ENABLE_FOLDER=false; ENABLE_PET=false; ENABLE_POWER=false; ENABLE_FACE=false
 API_KEY=""; BROWSER_URL=""; INTERNAL_BASE=""; DASHBOARD_PORT=""; PET_PORT=""; POWER_PORT=""
 ROOT=""; LEVEL="1"; CRON='0 3 * * *'; SCHEDULE_LABEL='Daily at 03:00'; RUN_NOW="true"; THUMB="random"; DETECTED_LIB=""; ROOT_SOURCE=""
 DB_HOST=""; DB_PORT="5432"; DB_USER=""; DB_PASS=""; DB_NAME=""; DB_NET=""
@@ -454,6 +544,10 @@ if [[ "$MODE" == update ]]; then
   has_service folderalbums && ENABLE_FOLDER=true || true
   has_service pettagger && ENABLE_PET=true || true
   has_service powertools && ENABLE_POWER=true || true
+  if has_service facealbums; then
+    ENABLE_FACE=true
+    FACE_RULES="$(env_of facealbums FACE_RULES)"; FACE_INTERVAL="$(env_of facealbums FACE_INTERVAL)"; [[ "$FACE_INTERVAL" =~ ^[0-9]+$ ]] || FACE_INTERVAL=3600
+  fi
   API_KEY="$(env_of folderalbums API_KEY)"; [[ -n "$API_KEY" ]] || API_KEY="$(env_of pettagger IMMICH_API_KEY)"; [[ -n "$API_KEY" ]] || API_KEY="$(env_of powertools IMMICH_API_KEY)"
   BROWSER_URL="$(env_of pettagger IMMICH_EXTERNAL_URL)"; [[ -n "$BROWSER_URL" ]] || BROWSER_URL="$(env_of powertools EXTERNAL_IMMICH_URL)"; [[ -n "$BROWSER_URL" ]] || BROWSER_URL="$DEFAULT_URL"
   INTERNAL_BASE="$(env_of pettagger IMMICH_URL)"; [[ -n "$INTERNAL_BASE" ]] || { X="$(env_of folderalbums API_URL)"; INTERNAL_BASE="${X%/api}"; }; [[ -n "$INTERNAL_BASE" ]] || INTERNAL_BASE="http://host.docker.internal:${DETECTED_PORT}"
@@ -504,6 +598,7 @@ esac
   $ENABLE_FOLDER && { say "  Folder Albums: enabled"; say "    Root:       $ROOT"; say "    Level:      $LEVEL"; say "    Schedule:   $CRON"; }
   $ENABLE_PET && say "  Pet Tagger:   enabled • :$PET_PORT"
   $ENABLE_POWER && say "  Power Tools:  enabled • :$POWER_PORT • DB $DB_HOST/$DB_NAME"
+  $ENABLE_FACE && say "  Face → Album: enabled • $(face_rule_count "$FACE_RULES") album(s) • every $((FACE_INTERVAL / 60)) min"
   say; case "$LANG_CODE" in
   nl) yesno "Deze instellingen behouden en alleen Toolbox/dashboard bijwerken?" Y;;
   de) yesno "Diese Einstellungen behalten und nur Toolbox/Dashboard aktualisieren?" Y;;
@@ -511,10 +606,11 @@ esac
 esac || { warn "Use option 2 (Reconfigure) instead."; exit 0; }
 else
   say; case "$LANG_CODE" in nl) say "Eén TrueNAS App met optionele Immich-uitbreidingen.";; de) say "Eine TrueNAS App mit optionalen Immich-Erweiterungen.";; *) say "One TrueNAS App with optional Immich companion tools.";; esac
-  say "  [1] Folder → Album Sync"; say "  [2] Pet Tagger"; say "  [3] Immich Power Tools"; say "  ✓ Toolbox Dashboard (always included)"; say
+  say "  [1] Folder → Album Sync"; say "  [2] Pet Tagger"; say "  [3] Immich Power Tools"; say "  [4] Face → Album (auto-updating albums per person)"; say "  ✓ Toolbox Dashboard (always included)"; say
   yesno "Enable Folder → Album Sync?" Y && ENABLE_FOLDER=true || true
   yesno "Enable Pet Tagger?" Y && ENABLE_PET=true || true
   yesno "Enable Immich Power Tools?" N && ENABLE_POWER=true || true
+  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" N && ENABLE_FACE=true || true
   [[ -n "$DEFAULT_URL" ]] && ok "Detected Immich URL: $DEFAULT_URL"
   read -rp "Immich URL used in your browser${DEFAULT_URL:+ [$DEFAULT_URL]}: " BROWSER_URL; BROWSER_URL="${BROWSER_URL:-$DEFAULT_URL}"; BROWSER_URL="${BROWSER_URL%/}"; [[ -n "$BROWSER_URL" ]] || die "Immich URL required."
   INTERNAL_BASE="http://host.docker.internal:${DETECTED_PORT}"
@@ -531,22 +627,26 @@ else
     yesno "Run album sync immediately?" Y && RUN_NOW=true || RUN_NOW=false; yesno "Random album thumbnail?" Y && THUMB=random || THUMB=""
   fi
   $ENABLE_PET && PET_PORT="$(choose_port "Pet Tagger" 2287)"
+  if $ENABLE_FACE && ! configure_face_albums; then
+    warn "$(msg "Face → Album is not configured and will be skipped." "Face → Album is niet ingesteld en wordt overgeslagen." "Face → Album ist nicht eingerichtet und wird übersprungen.")"
+    ENABLE_FACE=false
+  fi
   if $ENABLE_POWER; then POWER_PORT="$(choose_port "Power Tools" 8001)"; DB_CONT="$($SUDO docker ps --format '{{.Names}}' | grep -E '^ix-immich-.*(postgres|pgvecto|database|db).*$' | head -1 || true)"; if [[ -n "$DB_CONT" ]]; then DB_NET="$($SUDO docker inspect "$DB_CONT" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' | head -1)"; ENV="$($SUDO docker inspect "$DB_CONT" --format '{{range .Config.Env}}{{println .}}{{end}}')"; DB_USER="$(sed -n 's/^POSTGRES_USER=//p' <<<"$ENV" | head -1)"; DB_PASS="$(sed -n 's/^POSTGRES_PASSWORD=//p' <<<"$ENV" | head -1)"; DB_NAME="$(sed -n 's/^POSTGRES_DB=//p' <<<"$ENV" | head -1)"; DB_HOST="$DB_CONT"; fi; read -rp "DB host [${DB_HOST:-immich-postgres}]: " X; DB_HOST="${X:-${DB_HOST:-immich-postgres}}"; read -rp "DB port [5432]: " X; DB_PORT="${X:-5432}"; read -rp "DB user [${DB_USER:-postgres}]: " X; DB_USER="${X:-${DB_USER:-postgres}}"; [[ -n "$DB_PASS" ]] || { read -rsp "DB password: " DB_PASS; say; }; read -rp "DB name [${DB_NAME:-immich}]: " X; DB_NAME="${X:-${DB_NAME:-immich}}"; fi
 fi
 
 INTERNAL_API="${INTERNAL_BASE%/}/api"
 CFG="$(mktemp)"; PAYLOAD="$(mktemp)"; trap 'rm -f "$CFG" "$PAYLOAD" "$HTTP_CODE_FILE"' EXIT
-python3 - "$CFG" "$API_KEY" "$BROWSER_URL" "$INTERNAL_BASE" "$INTERNAL_API" "$ENABLE_FOLDER" "$ENABLE_PET" "$ENABLE_POWER" "$DASHBOARD_PORT" "$DETECTED_IP" "$TIMEZONE" "$ROOT" "$LEVEL" "$CRON" "$RUN_NOW" "$THUMB" "$PET_PORT" "$POWER_PORT" "$DB_HOST" "$DB_PORT" "$DB_USER" "$DB_PASS" "$DB_NAME" "$DB_NET" "$DETECTED_LIB" "$ROOT_SOURCE" <<'PY'
+python3 - "$CFG" "$API_KEY" "$BROWSER_URL" "$INTERNAL_BASE" "$INTERNAL_API" "$ENABLE_FOLDER" "$ENABLE_PET" "$ENABLE_POWER" "$DASHBOARD_PORT" "$DETECTED_IP" "$TIMEZONE" "$ROOT" "$LEVEL" "$CRON" "$RUN_NOW" "$THUMB" "$PET_PORT" "$POWER_PORT" "$DB_HOST" "$DB_PORT" "$DB_USER" "$DB_PASS" "$DB_NAME" "$DB_NET" "$DETECTED_LIB" "$ROOT_SOURCE" "$ENABLE_FACE" "$FACE_RULES" "$FACE_INTERVAL" <<'PY'
 import json,sys
-k=['api','browser','internal','internal_api','folder','pet','power','dashboard_port','host_ip','timezone','root','level','cron','run','thumb','pet_port','power_port','db_host','db_port','db_user','db_pass','db_name','db_net','library','root_source']
+k=['api','browser','internal','internal_api','folder','pet','power','dashboard_port','host_ip','timezone','root','level','cron','run','thumb','pet_port','power_port','db_host','db_port','db_user','db_pass','db_name','db_net','library','root_source','face','face_rules','face_interval']
 v=sys.argv[2:]
-d=dict(zip(k,v)); d['folder']=d['folder']=='true'; d['pet']=d['pet']=='true'; d['power']=d['power']=='true'; d['dashboard_port']=int(d['dashboard_port']);
+d=dict(zip(k,v)); d['folder']=d['folder']=='true'; d['pet']=d['pet']=='true'; d['power']=d['power']=='true'; d['face']=d['face']=='true'; d['dashboard_port']=int(d['dashboard_port']);
 for x in ('pet_port','power_port'):
   if d[x]: d[x]=int(d[x])
 json.dump(d,open(sys.argv[1],'w'))
 PY
 
-python3 - "$CFG" "$PAYLOAD" "$FOLDER_IMAGE" "$PET_IMAGE" "$POWER_IMAGE" "$DASHBOARD_IMAGE" "$TOOLBOX_VERSION" <<'PY'
+python3 - "$CFG" "$PAYLOAD" "$FOLDER_IMAGE" "$PET_IMAGE" "$POWER_IMAGE" "$DASHBOARD_IMAGE" "$TOOLBOX_VERSION" "$FACE_IMAGE" <<'PY'
 import json,sys,base64,html
 c=json.load(open(sys.argv[1])); version=sys.argv[7]; host=c.get('host_ip') or '127.0.0.1'; services={}; volumes={}; networks={}; eh=['host.docker.internal:host-gateway']
 def esc(x): return html.escape(str(x or ''))
@@ -559,6 +659,14 @@ if c.get('root_source')=='api': root_html+='<br><span class="pill ok">Matches an
 else: root_html+='<br><span class="pill warn">Not verified against Immich</span>'
 if c['folder']:
   folder_detail=f'''<section class="panel"><div class="panel-title">Folder → Album Sync <span class="pill ok">Enabled</span></div><div class="kv"><span>Library</span><b>{esc(c.get('library') or 'External Library')}</b><span>Root path{'s' if len(roots)>1 else ''} (ROOT_PATH)</span><b>{root_html}</b><span>Album level</span><b>{esc(c.get('level'))}</b><span>Schedule</span><b>{esc(schedule_display)}</b><span>Mode</span><b>CREATE only</b><span>Thumbnail</span><b>{esc(c.get('thumb') or 'default')}</b></div><p class="muted">Runs in the background and has no separate web UI. Logs are available in TrueNAS → Apps → immichtoolbox → folderalbums. ROOT_PATH must be exactly an import path of an Immich External Library (Administration → External Libraries) or a folder below it; otherwise every run reports 0 albums. Re-run the installer and choose Update to re-check it.</p></section>'''
+face_detail=''
+if c['face']:
+  rows=''
+  for rule in [r for r in str(c.get('face_rules') or '').split(';') if r.strip()]:
+    parts=(rule.split('|')+['','','',''])[:4]
+    rows+=f'''<span>{'All together' if parts[2]=='1' else 'Any of them'}</span><b><a href="{esc(c['browser'])}/albums/{esc(parts[0])}" style="color:var(--blue)">{esc(parts[3] or parts[0])}</a></b>'''
+  minutes=int(c.get('face_interval') or 3600)//60
+  face_detail=f'''<section class="panel"><div class="panel-title">Face → Album <span class="pill ok">Enabled</span></div><div class="kv">{rows or '<span>Albums</span><b>none configured</b>'}<span>Sync</span><b>every {minutes} min (new uploads only after the first full run)</b></div><p class="muted">Keeps Immich albums filled with every photo of the selected people, using <a href="https://github.com/romainrbr/immich-face-to-album" style="color:var(--blue)">immich-face-to-album</a>. Only adds photos, never removes them. Change the people/albums by re-running the installer and choosing option 2 (Reconfigure). Logs: TrueNAS → Apps → immichtoolbox → facealbums.</p></section>'''
 pet_detail=''
 if c['pet']:
   pet_detail=f'''<section class="panel"><div class="panel-title">Pet Tagger <span class="pill ok">Enabled</span></div><p class="muted">Pet Tagger automatically scans only photos uploaded after its last hourly poll. Photos that were already in Immich are only tagged by a one-time full scan. Enroll your pets with reference photos in Pet Tagger first, then start the scan here (on CPU a large library can take hours).</p><div class="kv"><span>Scan photos taken since</span><b><input id="petSince" type="date" value="1970-01-01"></b><span>Status</span><b id="petStatus">Loading…</b></div><p><button onclick="petScan()">Start full scan</button> <button class="secondary" onclick="petStop()">Stop scan</button> <a class="btn" href="http://{host}:{c['pet_port']}">Open Pet Tagger</a></p></section>'''
@@ -593,7 +701,7 @@ async function petScan(){
 async function petStop(){try{await fetch(PT+'/scan/stop',{method:'POST'});petRefresh()}catch(e){}}
 petRefresh();
 </script>'''
-page=f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Immich Toolbox</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='1' x2='1' y2='0'%3E%3Cstop stop-color='%2322c55e'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M14 20h29v7H14zm0 12h24v7H14z' fill='white'/%3E%3Ccircle cx='46' cy='44' r='8' fill='white'/%3E%3Ccircle cx='46' cy='44' r='3.5' fill='%233b82f6'/%3E%3C/svg%3E"><style>:root{{--bg:#0b1020;--panel:#111827;--panel2:#172033;--text:#f8fafc;--muted:#94a3b8;--line:#263247;--green:#22c55e;--blue:#60a5fa}}*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top right,#18233d,var(--bg) 40%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}}main{{max-width:1120px;margin:auto;padding:36px 20px 70px}}header{{display:flex;align-items:center;gap:16px;margin-bottom:28px}}header svg{{width:58px;height:58px}}h1{{margin:0;font-size:34px;letter-spacing:-.8px}}.sub{{color:var(--muted);margin-top:4px}}.top{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0 28px}}.stat,.panel{{background:rgba(17,24,39,.85);border:1px solid var(--line);border-radius:16px;padding:18px}}.stat span{{display:block;color:var(--muted);font-size:13px;margin-bottom:5px}}.stat b{{font-size:17px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px}}.card{{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;color:inherit;text-decoration:none;transition:.16s}}.card:hover{{transform:translateY(-2px);background:var(--panel2);border-color:#3b82f6}}.card .ico{{font-size:25px}}.card div:nth-child(2){{flex:1}}.card h3{{margin:0 0 5px}}.card p{{margin:0;color:var(--muted);font-size:14px;overflow-wrap:anywhere}}.card>span{{color:var(--blue)}}.panel{{margin-top:16px}}.panel-title{{font-size:20px;font-weight:700;margin-bottom:14px}}.pill{{font-size:12px;padding:4px 8px;border-radius:99px;margin-left:7px}}.pill.ok{{background:#14351f;color:#86efac}}.pill.warn{{background:#3a2a10;color:#fcd34d}}.path{{font-family:ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere}}input[type=date]{{background:#090e19;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}}.kv{{display:grid;grid-template-columns:minmax(130px,180px) 1fr;gap:10px 18px}}.kv span{{color:var(--muted)}}.muted{{color:var(--muted);line-height:1.55}}button,.btn{{border:0;border-radius:10px;padding:10px 13px;background:#2563eb;color:white;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}}button.secondary{{background:#263247}}code{{display:block;background:#090e19;border:1px solid var(--line);padding:12px;border-radius:10px;overflow:auto;color:#cbd5e1;margin:12px 0}}#updateStatus{{margin:10px 0;color:var(--muted)}}footer{{margin-top:28px;color:var(--muted);font-size:13px}}</style></head><body><main><header>{logo}<div><h1>Immich Toolbox</h1><div class="sub">Manage your Immich companion tools in one place</div></div></header><div class="top"><div class="stat"><span>Toolbox version</span><b>v{version}</b></div><div class="stat"><span>Immich</span><b>Connected</b></div><div class="stat"><span>Enabled modules</span><b>{sum([c['folder'],c['pet'],c['power']])}</b></div><div class="stat"><span>Dashboard port</span><b>{c['dashboard_port']}</b></div></div><div class="grid">{''.join(cards)}</div>{folder_detail}{pet_detail}<section class="panel"><div class="panel-title">Configuration</div><div class="kv"><span>Immich URL</span><b>{esc(c['browser'])}</b><span>Internal URL</span><b>{esc(c['internal'])}</b><span>Timezone</span><b>{esc(c['timezone'])}</b><span>API key</span><b>Configured • hidden</b></div></section><section class="panel"><div class="panel-title">Updates</div><p class="muted">Check GitHub for a newer Immich Toolbox installer. Updating from the shell preserves your current settings by default.</p><div id="updateStatus">Installed: v{version}</div><button onclick="checkUpdate()">Check for updates</button> <a class="btn" href="https://github.com/Kevin2296/immich-toolbox" target="_blank">GitHub / changelog</a><code>bash &lt;(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh)</code></section><section class="panel"><div class="panel-title">Access & security</div><p class="muted">Immich uses your normal account. This dashboard and Pet Tagger do not provide their own authentication; keep them LAN-only or protect them with a reverse proxy before exposing them externally. The dashboard forwards only Pet Tagger's pets list and scan start/stop/status endpoints, which are already reachable without login on the Pet Tagger port.</p></section><footer>Immich Toolbox v{version} • community orchestration project</footer></main><script>async function checkUpdate(){{let el=document.getElementById('updateStatus');el.textContent='Checking…';try{{let latest=(await fetch('https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/version.txt?'+Date.now()).then(r=>r.text())).trim();if(!latest)throw 0;el.textContent=latest==='{version}'?'✓ Up to date — v'+latest:'⬆ Update available: v'+latest+' (installed v{version})';}}catch(e){{el.textContent='Could not check GitHub. Use the command below to update manually.'}}}}</script>{pet_js}</body></html>'''
+page=f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Immich Toolbox</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='1' x2='1' y2='0'%3E%3Cstop stop-color='%2322c55e'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M14 20h29v7H14zm0 12h24v7H14z' fill='white'/%3E%3Ccircle cx='46' cy='44' r='8' fill='white'/%3E%3Ccircle cx='46' cy='44' r='3.5' fill='%233b82f6'/%3E%3C/svg%3E"><style>:root{{--bg:#0b1020;--panel:#111827;--panel2:#172033;--text:#f8fafc;--muted:#94a3b8;--line:#263247;--green:#22c55e;--blue:#60a5fa}}*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at top right,#18233d,var(--bg) 40%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}}main{{max-width:1120px;margin:auto;padding:36px 20px 70px}}header{{display:flex;align-items:center;gap:16px;margin-bottom:28px}}header svg{{width:58px;height:58px}}h1{{margin:0;font-size:34px;letter-spacing:-.8px}}.sub{{color:var(--muted);margin-top:4px}}.top{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0 28px}}.stat,.panel{{background:rgba(17,24,39,.85);border:1px solid var(--line);border-radius:16px;padding:18px}}.stat span{{display:block;color:var(--muted);font-size:13px;margin-bottom:5px}}.stat b{{font-size:17px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px}}.card{{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;color:inherit;text-decoration:none;transition:.16s}}.card:hover{{transform:translateY(-2px);background:var(--panel2);border-color:#3b82f6}}.card .ico{{font-size:25px}}.card div:nth-child(2){{flex:1}}.card h3{{margin:0 0 5px}}.card p{{margin:0;color:var(--muted);font-size:14px;overflow-wrap:anywhere}}.card>span{{color:var(--blue)}}.panel{{margin-top:16px}}.panel-title{{font-size:20px;font-weight:700;margin-bottom:14px}}.pill{{font-size:12px;padding:4px 8px;border-radius:99px;margin-left:7px}}.pill.ok{{background:#14351f;color:#86efac}}.pill.warn{{background:#3a2a10;color:#fcd34d}}.path{{font-family:ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere}}input[type=date]{{background:#090e19;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}}.kv{{display:grid;grid-template-columns:minmax(130px,180px) 1fr;gap:10px 18px}}.kv span{{color:var(--muted)}}.muted{{color:var(--muted);line-height:1.55}}button,.btn{{border:0;border-radius:10px;padding:10px 13px;background:#2563eb;color:white;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}}button.secondary{{background:#263247}}code{{display:block;background:#090e19;border:1px solid var(--line);padding:12px;border-radius:10px;overflow:auto;color:#cbd5e1;margin:12px 0}}#updateStatus{{margin:10px 0;color:var(--muted)}}footer{{margin-top:28px;color:var(--muted);font-size:13px}}</style></head><body><main><header>{logo}<div><h1>Immich Toolbox</h1><div class="sub">Manage your Immich companion tools in one place</div></div></header><div class="top"><div class="stat"><span>Toolbox version</span><b>v{version}</b></div><div class="stat"><span>Immich</span><b>Connected</b></div><div class="stat"><span>Enabled modules</span><b>{sum([c['folder'],c['pet'],c['power'],c['face']])}</b></div><div class="stat"><span>Dashboard port</span><b>{c['dashboard_port']}</b></div></div><div class="grid">{''.join(cards)}</div>{folder_detail}{face_detail}{pet_detail}<section class="panel"><div class="panel-title">Configuration</div><div class="kv"><span>Immich URL</span><b>{esc(c['browser'])}</b><span>Internal URL</span><b>{esc(c['internal'])}</b><span>Timezone</span><b>{esc(c['timezone'])}</b><span>API key</span><b>Configured • hidden</b></div></section><section class="panel"><div class="panel-title">Updates</div><p class="muted">Check GitHub for a newer Immich Toolbox installer. Updating from the shell preserves your current settings by default.</p><div id="updateStatus">Installed: v{version}</div><button onclick="checkUpdate()">Check for updates</button> <a class="btn" href="https://github.com/Kevin2296/immich-toolbox" target="_blank">GitHub / changelog</a><code>bash &lt;(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh)</code></section><section class="panel"><div class="panel-title">Access & security</div><p class="muted">Immich uses your normal account. This dashboard and Pet Tagger do not provide their own authentication; keep them LAN-only or protect them with a reverse proxy before exposing them externally. The dashboard forwards only Pet Tagger's pets list and scan start/stop/status endpoints, which are already reachable without login on the Pet Tagger port.</p></section><footer>Immich Toolbox v{version} • community orchestration project</footer></main><script>async function checkUpdate(){{let el=document.getElementById('updateStatus');el.textContent='Checking…';try{{let latest=(await fetch('https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/version.txt?'+Date.now()).then(r=>r.text())).trim();if(!latest)throw 0;el.textContent=latest==='{version}'?'✓ Up to date — v'+latest:'⬆ Update available: v'+latest+' (installed v{version})';}}catch(e){{el.textContent='Could not check GitHub. Use the command below to update manually.'}}}}</script>{pet_js}</body></html>'''
 encoded=base64.b64encode(page.encode()).decode()
 pet_proxy=''
 if c['pet']:
@@ -647,6 +755,27 @@ if c['power']:
   x={'image':sys.argv[5],'restart':'unless-stopped','extra_hosts':eh,'environment':{'IMMICH_URL':c['internal'],'IMMICH_API_KEY':c['api'],'EXTERNAL_IMMICH_URL':c['browser'],'DB_HOST':c['db_host'],'DB_PORT':c['db_port'],'DB_USERNAME':c['db_user'],'DB_PASSWORD':c['db_pass'],'DB_DATABASE_NAME':c['db_name']},'ports':[f"{c['power_port']}:3000"],'volumes':['powertools_data:/app/data']}
   if c.get('db_net'): x['networks']=['default','immich_external']; networks['immich_external']={'external':True,'name':c['db_net']}
   services['powertools']=x;volumes['powertools_data']={}
+if c['face']:
+  # One container runs immich-face-to-album once per rule, then sleeps. The
+  # script is base64-encoded so compose never interpolates its $ variables.
+  face_script=r"""#!/bin/sh
+interval="${FACE_INTERVAL:-3600}"
+rules="$(printf '%s' "$FACE_RULES" | tr ';' '\n')"
+echo "Immich Toolbox Face -> Album: $(printf '%s\n' "$rules" | grep -c .) album(s), every ${interval}s"
+while :; do
+  printf '%s\n' "$rules" | while IFS='|' read -r album faces all label; do
+    [ -n "$album" ] || continue
+    set -- --key "$IMMICH_API_KEY" --server "$IMMICH_URL" --album "$album" --state-file "/state/$album.json"
+    for f in $(printf '%s' "$faces" | tr ',' ' '); do set -- "$@" --face "$f"; done
+    if [ "$all" = 1 ]; then set -- "$@" --require-all-faces; fi
+    echo "$(date '+%F %T') sync: $label"
+    python -m immich_face_to_album "$@" || echo "$(date '+%F %T') sync FAILED: $label"
+  done
+  sleep "$interval"
+done
+"""
+  fs=base64.b64encode(face_script.encode()).decode()
+  services['facealbums']={'image':sys.argv[8],'restart':'unless-stopped','extra_hosts':eh,'entrypoint':['/bin/sh','-c'],'command':[f"echo {fs} | base64 -d > /tmp/run.sh && exec sh /tmp/run.sh"],'environment':{'TZ':c['timezone'],'IMMICH_URL':c['internal'],'IMMICH_API_KEY':c['api'],'FACE_RULES':c['face_rules'],'FACE_INTERVAL':str(c.get('face_interval') or '3600')},'volumes':['facealbums_state:/state']};volumes['facealbums_state']={}
 co={'services':services}
 if volumes:co['volumes']=volumes
 if networks:co['networks']=networks
@@ -659,7 +788,7 @@ case "$LANG_CODE" in
   de) say "${BOLD}Zusammenfassung${RESET}";;
   *)  say "${BOLD}Summary${RESET}";;
 esac
- say "  Immich:      $BROWSER_URL"; say "  Dashboard:   http://${DETECTED_IP}:${DASHBOARD_PORT}"; say "  API key:     configured (hidden)"; $ENABLE_FOLDER && say "  Folder:      $ROOT • $CRON"; $ENABLE_PET && say "  Pet Tagger:  http://${DETECTED_IP}:${PET_PORT}"; $ENABLE_POWER && say "  Power Tools: http://${DETECTED_IP}:${POWER_PORT}"
+ say "  Immich:      $BROWSER_URL"; say "  Dashboard:   http://${DETECTED_IP}:${DASHBOARD_PORT}"; say "  API key:     configured (hidden)"; $ENABLE_FOLDER && say "  Folder:      $ROOT • $CRON"; $ENABLE_PET && say "  Pet Tagger:  http://${DETECTED_IP}:${PET_PORT}"; $ENABLE_POWER && say "  Power Tools: http://${DETECTED_IP}:${POWER_PORT}"; $ENABLE_FACE && say "  Face→Album:  $(face_rule_count "$FACE_RULES") album(s)"
 if [[ "$MODE" == update || "$MODE" == reconfigure ]]; then
   yesno "$(msg "Apply update now?" "Update nu uitvoeren?" "Update jetzt ausführen?")" Y || exit 0
   pull_images
@@ -709,6 +838,7 @@ printf '  %-14s %s\n' "dashboard" "$(service_state dashboard)"
 $ENABLE_FOLDER && printf '  %-14s %s\n' "folderalbums" "$(service_state folderalbums)"
 $ENABLE_PET && printf '  %-14s %s\n' "pettagger" "$(service_state pettagger)"
 $ENABLE_POWER && printf '  %-14s %s\n' "powertools" "$(service_state powertools)"
+$ENABLE_FACE && printf '  %-14s %s\n' "facealbums" "$(service_state facealbums)"
 say
 case "$LANG_CODE" in
   nl)
