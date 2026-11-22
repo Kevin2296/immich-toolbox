@@ -11,6 +11,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 - **Folder → Album Sync** using [Salvoxia/immich-folder-album-creator](https://github.com/Salvoxia/immich-folder-album-creator)
 - **Pet Tagger** using [tedornitier/immich-pet-tagger](https://github.com/tedornitier/immich-pet-tagger)
 - **Immich Power Tools** using [immich-power-tools/immich-power-tools](https://github.com/immich-power-tools/immich-power-tools)
+- **Face → Album** using [romainrbr/immich-face-to-album](https://github.com/romainrbr/immich-face-to-album)
 - **Toolbox Dashboard** (always included)
 
 ## Stable one-line installation
@@ -19,7 +20,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.0.0/install.sh)
 ```
 
-For development/testing, `main` may contain newer changes (currently v1.2.0, see [CHANGELOG](CHANGELOG.md)):
+For development/testing, `main` may contain newer changes (currently v1.3.0, see [CHANGELOG](CHANGELOG.md)):
 
 ```bash
 bash <(curl -fsSL "https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh?cb=$(date +%s)")
@@ -60,6 +61,7 @@ At the end of an interactive install/update the installer offers to create a Tru
 | Pet Tagger | `ghcr.io/tedornitier/immich-pet-tagger:cpu` | floating tag: every update run pulls the newest image |
 | Folder → Album | `salvoxia/immich-folder-album-creator:2.0.3` | pinned: bumped in this repo after checking upstream for breaking changes, then rolled out by the next update run |
 | Power Tools | `ghcr.io/immich-power-tools/immich-power-tools:v0.26.0` | pinned, same as above |
+| Face → Album | `rbrucker/immich-face-to-album:1.0.17` | pinned, same as above |
 
 Since v1.1.0 an update also **re-checks the Folder Albums `ROOT_PATH`** against the External Library import paths reported by Immich. If the stored path is not an import path (or a folder below one) — which makes the album creator log `0 albums created` on every run — the installer shows the mismatch and offers to pick the correct path(s).
 
@@ -145,9 +147,27 @@ Optional review-tag permissions:
 - `tag.create`
 - `tag.asset`
 
+### Face → Album
+
+- `person.read`
+- `asset.read`
+- `album.read`
+- `albumAsset.create`
+- `album.create` (only when the installer creates a new album for you)
+
 ### Immich Power Tools
 
 When Power Tools is enabled, the installer recommends **Select all / all API permissions** for the shared Toolbox API key.
+
+## Face → Album
+
+Keeps Immich albums filled with every photo of one or more people (like Google Photos' auto-updating albums).
+
+- During install/reconfigure the installer lists your **named** people (Immich → Explore → People) and your albums. Per album you pick the people (numbers like `1,3`), choose whether they must appear **together** or whether **any** of them is enough, and pick an existing album or let the installer create one.
+- You can add several face albums. One `facealbums` container syncs them all, every 60 minutes by default. The first run scans everything; after that only new uploads are checked (state is kept in the `facealbums_state` volume).
+- Photos are only added, never removed.
+- To change people or albums, run the installer again and choose option 2 (Reconfigure). Normal and unattended updates keep the existing face albums.
+- The dashboard lists every face album with a link to the album in Immich.
 
 ## Folder → Album safety defaults
 

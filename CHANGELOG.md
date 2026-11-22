@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0 (unreleased)
+- New module **Face → Album** using [romainrbr/immich-face-to-album](https://github.com/romainrbr/immich-face-to-album) (`rbrucker/immich-face-to-album:1.0.17`): auto-updating albums per person or group of people.
+- The installer lists named people and albums through the Immich API, can create a new album and supports several face albums with "any" or "all together" matching.
+- One `facealbums` container syncs all rules (default every 60 minutes, incremental after the first run). Rules are kept on update/unattended update and shown on the dashboard.
+
 ## 1.2.0 (unreleased)
 - New `--update --yes` mode for unattended updates (plus `--lang` and `--help`). It never prompts, never stops other apps and never changes `ROOT_PATH`; it only reports problems.
 - Optional TrueNAS cron job `Immich Toolbox auto-update` (weekly or daily), offered at the end of an interactive run and removed together with the Toolbox.
