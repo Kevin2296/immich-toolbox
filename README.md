@@ -19,7 +19,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.0.0/install.sh)
 ```
 
-For development/testing, `main` may contain newer changes (currently v1.1.0, see [CHANGELOG](CHANGELOG.md)):
+For development/testing, `main` may contain newer changes (currently v1.2.0, see [CHANGELOG](CHANGELOG.md)):
 
 ```bash
 bash <(curl -fsSL "https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh?cb=$(date +%s)")
@@ -35,6 +35,31 @@ Running the installer again detects an existing `immichtoolbox` installation and
 4. **Quit**
 
 A normal update reads the existing API key, Immich URLs, ports, Folder Albums settings, Pet Tagger settings and Power Tools database settings from the running Toolbox containers where possible.
+
+Every update also pulls the module images again. Containers that still run an older image afterwards (e.g. a new `pet-tagger:cpu` or `nginx:alpine` release) are redeployed; otherwise nothing restarts needlessly.
+
+## Automatic updates
+
+TrueNAS has no update button for Custom Apps that changes their configuration, so updates come from re-running the installer. This can run unattended:
+
+```bash
+install.sh --update --yes [--lang en|nl|de]
+```
+
+`--update --yes` keeps all settings and never asks anything. It also **never stops other apps and never changes `ROOT_PATH` by itself**: it only reports problems (as warnings on stderr) and leaves fixing them to an interactive run. It exits with an error if the existing API key or root path cannot be read.
+
+At the end of an interactive install/update the installer offers to create a TrueNAS cron job (**System → Advanced → Cron Jobs → `Immich Toolbox auto-update`**, weekly on Sunday 04:00 or daily at 04:00, as root). The job downloads the latest `install.sh` from `main` and runs it with `--update --yes`. Standard output is hidden; warnings and errors go to TrueNAS's root e-mail if mail is configured. Removing the Toolbox (option 3) also removes the cron job.
+
+> The cron job runs whatever is on `main` of this repository as root on your NAS. Only enable it if you trust who can push to `main`.
+
+### Where module updates come from
+
+| Module | Image tag | How it updates |
+|---|---|---|
+| Dashboard | `nginx:alpine` | floating tag: every update run pulls the newest image |
+| Pet Tagger | `ghcr.io/tedornitier/immich-pet-tagger:cpu` | floating tag: every update run pulls the newest image |
+| Folder → Album | `salvoxia/immich-folder-album-creator:2.0.3` | pinned: bumped in this repo after checking upstream for breaking changes, then rolled out by the next update run |
+| Power Tools | `ghcr.io/immich-power-tools/immich-power-tools:v0.26.0` | pinned, same as above |
 
 Since v1.1.0 an update also **re-checks the Folder Albums `ROOT_PATH`** against the External Library import paths reported by Immich. If the stored path is not an import path (or a folder below one) — which makes the album creator log `0 albums created` on every run — the installer shows the mismatch and offers to pick the correct path(s).
 

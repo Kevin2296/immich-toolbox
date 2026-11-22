@@ -6,12 +6,15 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.1.0"
-FOLDER_IMAGE="salvoxia/immich-folder-album-creator:1.0.0"
+TOOLBOX_VERSION="1.2.0"
+# Pinned images are bumped in this repo after checking upstream for breaking
+# changes; floating tags (:cpu, :alpine) are refreshed by every update run.
+FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
 PET_IMAGE="ghcr.io/tedornitier/immich-pet-tagger:cpu"
-POWER_IMAGE="ghcr.io/immich-power-tools/immich-power-tools:v0.22.0"
+POWER_IMAGE="ghcr.io/immich-power-tools/immich-power-tools:v0.26.0"
 DASHBOARD_IMAGE="nginx:alpine"
 REPO_RAW="https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/install.sh"
+CRON_DESCRIPTION="Immich Toolbox auto-update"
 
 BOLD=$'\033[1m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; CYAN=$'\033[36m'; RESET=$'\033[0m'
 say(){ printf '%s\n' "$*"; }
@@ -19,12 +22,46 @@ ok(){ printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
 warn(){ printf '%s!%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
 die(){ printf '%s✗%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 
-[[ -r /dev/tty ]] && exec </dev/tty
+usage(){
+  cat <<'EOF'
+Usage: install.sh [--update [--yes]] [--lang en|nl|de]
+
+  (no options)   interactive install / update / reconfigure / remove menu
+  --update       update the existing installation, keeping its settings
+  --yes, -y      with --update: run unattended (for cron); never asks anything,
+                 never stops other apps and never changes ROOT_PATH by itself
+  --lang CODE    language for messages (en, nl, de)
+EOF
+}
+ARG_MODE=""; ARG_LANG=""; UNATTENDED=false
+while (($#)); do
+  case "$1" in
+    --update) ARG_MODE=update;;
+    --yes|-y) UNATTENDED=true;;
+    --lang) [[ $# -ge 2 ]] || die "--lang needs a value"; ARG_LANG="$2"; shift;;
+    --lang=*) ARG_LANG="${1#--lang=}";;
+    -h|--help) usage; exit 0;;
+    *) usage >&2; die "Unknown option: $1";;
+  esac
+  shift
+done
+[[ -z "$ARG_LANG" || "$ARG_LANG" =~ ^(en|nl|de)$ ]] || die "--lang must be en, nl or de"
+if $UNATTENDED && [[ "$ARG_MODE" != update ]]; then die "--yes only works together with --update"; fi
+
+# Interactive runs read answers from the terminal (also when piped through curl).
+if ! $UNATTENDED && [[ -r /dev/tty ]] && { true </dev/tty; } 2>/dev/null; then exec </dev/tty; fi
 for c in midclt python3 docker curl ss; do command -v "$c" >/dev/null 2>&1 || die "$c is missing."; done
 [[ $EUID -eq 0 ]] && SUDO="" || SUDO="sudo"
-$SUDO -v
+if [[ -n "$SUDO" ]]; then
+  if $UNATTENDED; then sudo -n true 2>/dev/null || die "--yes needs root or passwordless sudo."; else $SUDO -v; fi
+fi
 
-yesno(){ local p="$1" d="${2:-Y}" a; if [[ "$d" == Y ]]; then read -rp "$p [Y/n]: " a; a="${a:-Y}"; else read -rp "$p [y/N]: " a; a="${a:-N}"; fi; [[ "$a" =~ ^[YyJj]$ ]]; }
+yesno(){
+  local p="$1" d="${2:-Y}" a
+  if $UNATTENDED; then say "$p → ${d} (unattended)"; [[ "$d" == Y ]]; return; fi
+  if [[ "$d" == Y ]]; then read -rp "$p [Y/n]: " a; a="${a:-Y}"; else read -rp "$p [y/N]: " a; a="${a:-N}"; fi
+  [[ "$a" =~ ^[YyJj]$ ]]
+}
 port_busy(){ ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$1$"; }
 container_for_service(){ $SUDO docker ps -a --filter "label=com.docker.compose.project=ix-${APP_NAME}" --filter "label=com.docker.compose.service=$1" --format '{{.Names}}' | head -1; }
 published_port(){ local c; c="$(container_for_service "$1")"; [[ -n "$c" ]] || return 0; $SUDO docker port "$c" "$2/tcp" 2>/dev/null | head -1 | sed -E 's/.*:([0-9]+)$/\1/' || true; }
@@ -198,7 +235,9 @@ for a in apps if isinstance(apps,list) else []:
   while IFS=$'\t' read -r id state <&3; do
     [[ -n "$id" ]] || continue
     warn "$(msg "Another TrueNAS app runs the Folder → Album creator: '$id' ($state). Together with the Toolbox this does the same work twice." "Een andere TrueNAS-app draait ook de Folder → Album-creator: '$id' ($state). Samen met de Toolbox gebeurt hetzelfde werk dubbel." "Eine andere TrueNAS-App führt ebenfalls den Folder → Album-Creator aus: '$id' ($state). Zusammen mit der Toolbox wird die Arbeit doppelt erledigt.")"
-    if [[ "$state" == RUNNING || "$state" == DEPLOYING ]]; then
+    if [[ "$state" == RUNNING || "$state" == DEPLOYING ]] && $UNATTENDED; then
+      warn "$(msg "Not stopping '$id' in unattended mode; run the installer interactively to stop it." "'$id' wordt in onbewaakte modus niet gestopt; draai de installer interactief om hem te stoppen." "'$id' wird im unbeaufsichtigten Modus nicht gestoppt; Installer interaktiv starten.")"
+    elif [[ "$state" == RUNNING || "$state" == DEPLOYING ]]; then
       if yesno "$(msg "Stop app '$id' now? (it is not deleted; you can remove it later in TrueNAS → Apps)" "App '$id' nu stoppen? (wordt niet verwijderd; dat kan later in TrueNAS → Apps)" "App '$id' jetzt stoppen? (wird nicht gelöscht; das geht später unter TrueNAS → Apps)")" Y; then
         if run_job app.stop "$id"; then ok "$(msg "App '$id' stopped." "App '$id' gestopt." "App '$id' gestoppt.")"; else warn "$(msg "Could not stop '$id'; stop it in TrueNAS → Apps." "Kon '$id' niet stoppen; stop hem via TrueNAS → Apps." "Konnte '$id' nicht stoppen; bitte unter TrueNAS → Apps stoppen.")"; fi
       fi
@@ -231,6 +270,7 @@ print(min(d) if len(d)==len(pets) else "1970-01-01")
 }
 offer_pet_backfill(){
   $ENABLE_PET || return 0
+  $UNATTENDED && return 0
   local since rc=0
   say
   since="$(pet_ready_since)" || rc=$?
@@ -256,6 +296,82 @@ service_state(){
   [[ -n "$c" ]] || { printf '%s' "not installed"; return 0; }
   $SUDO docker inspect "$c" --format '{{.State.Status}}' 2>/dev/null || printf '%s' "unknown"
 }
+
+# --- Image refresh ------------------------------------------------------------
+# "service<TAB>image" for every enabled module.
+enabled_images(){
+  printf 'dashboard\t%s\n' "$DASHBOARD_IMAGE"
+  if $ENABLE_FOLDER; then printf 'folderalbums\t%s\n' "$FOLDER_IMAGE"; fi
+  if $ENABLE_PET; then printf 'pettagger\t%s\n' "$PET_IMAGE"; fi
+  if $ENABLE_POWER; then printf 'powertools\t%s\n' "$POWER_IMAGE"; fi
+}
+image_id(){ $SUDO docker image inspect --format '{{.Id}}' "$1" 2>/dev/null || true; }
+# Pull the current images so floating tags (:cpu, :alpine) pick up upstream releases.
+pull_images(){
+  local svc img
+  say "$(msg "Checking for newer container images…" "Controleren op nieuwere container-images…" "Suche nach neueren Container-Images…")"
+  while IFS=$'\t' read -r svc img; do
+    if $SUDO docker pull -q "$img" >/dev/null 2>&1; then
+      printf '  %-14s %s\n' "$svc" "$img"
+    else
+      warn "$(msg "Could not pull $img (offline?); keeping the local image." "Kon $img niet downloaden (offline?); lokale image blijft in gebruik." "$img konnte nicht geladen werden (offline?); lokales Image bleibt.")"
+    fi
+  done < <(enabled_images)
+}
+# Services whose running container does not use the current image yet.
+stale_services(){
+  local svc img c cur want
+  while IFS=$'\t' read -r svc img; do
+    c="$(container_for_service "$svc")"; [[ -n "$c" ]] || continue
+    cur="$($SUDO docker inspect --format '{{.Image}}' "$c" 2>/dev/null || true)"; want="$(image_id "$img")"
+    [[ -n "$want" && "$cur" != "$want" ]] && printf '%s\n' "$svc"
+  done < <(enabled_images)
+  return 0
+}
+
+# --- Automatic updates (TrueNAS cron job) -----------------------------------------
+cron_job_id(){
+  $SUDO midclt call cronjob.query "$(python3 -c 'import json,sys; print(json.dumps([["description","=",sys.argv[1]]]))' "$CRON_DESCRIPTION")" 2>/dev/null \
+    | python3 -c 'import json,sys
+try: r=json.load(sys.stdin)
+except Exception: r=[]
+print(r[0]["id"] if r else "")' 2>/dev/null || true
+}
+# TrueNAS → System → Advanced → Cron Jobs entry that runs `install.sh --update --yes`.
+offer_cron_job(){
+  $UNATTENDED && return 0
+  local id sched hour dow payload cmd
+  id="$(cron_job_id)"
+  say
+  if [[ -n "$id" ]]; then
+    ok "$(msg "Automatic updates are enabled (TrueNAS → System → Advanced → Cron Jobs → '$CRON_DESCRIPTION')." "Automatische updates staan aan (TrueNAS → Systeem → Geavanceerd → Cron Jobs → '$CRON_DESCRIPTION')." "Automatische Updates sind aktiv (TrueNAS → System → Erweitert → Cron Jobs → '$CRON_DESCRIPTION').")"
+    return 0
+  fi
+  say "$(msg "Automatic updates: a TrueNAS cron job can run this installer with --update --yes. It keeps your settings, pulls newer images and redeploys only when needed. It runs the latest installer from GitHub (main) as root." \
+             "Automatische updates: een TrueNAS-cronjob kan deze installer met --update --yes draaien. Je instellingen blijven behouden, nieuwere images worden opgehaald en alleen als het nodig is wordt opnieuw uitgerold. Hij draait de nieuwste installer van GitHub (main) als root." \
+             "Automatische Updates: Ein TrueNAS-Cronjob kann diesen Installer mit --update --yes ausführen. Einstellungen bleiben erhalten, neuere Images werden geladen und nur bei Bedarf neu ausgerollt. Er führt den neuesten Installer von GitHub (main) als root aus.")"
+  yesno "$(msg "Enable automatic updates?" "Automatische updates inschakelen?" "Automatische Updates aktivieren?")" N || return 0
+  say "  1) $(msg "Weekly, Sunday 04:00" "Wekelijks, zondag 04:00" "Wöchentlich, Sonntag 04:00")  2) $(msg "Daily 04:00" "Dagelijks 04:00" "Täglich 04:00")"
+  read -rp "$(msg "Choice" "Keuze" "Auswahl") [1]: " sched
+  case "${sched:-1}" in 2) hour=4; dow='*';; *) hour=4; dow=0;; esac
+  cmd="bash -c 'f=\$(mktemp) && curl -fsSL ${REPO_RAW} -o \"\$f\" && bash \"\$f\" --update --yes --lang ${LANG_CODE}; r=\$?; rm -f \"\$f\"; exit \$r'"
+  payload="$(python3 -c '
+import json,sys
+print(json.dumps({"enabled":True,"description":sys.argv[1],"command":sys.argv[2],"user":"root",
+  "schedule":{"minute":"0","hour":sys.argv[3],"dom":"*","month":"*","dow":sys.argv[4]},
+  "stdout":True,"stderr":False}))' "$CRON_DESCRIPTION" "$cmd" "$hour" "$dow")"
+  if $SUDO midclt call cronjob.create "$payload" >/dev/null; then
+    ok "$(msg "Cron job '$CRON_DESCRIPTION' created. Errors and warnings are mailed by TrueNAS (if e-mail is set up)." "Cronjob '$CRON_DESCRIPTION' aangemaakt. Fouten en waarschuwingen mailt TrueNAS (als e-mail is ingesteld)." "Cronjob '$CRON_DESCRIPTION' angelegt. Fehler und Warnungen verschickt TrueNAS per Mail (falls eingerichtet).")"
+  else
+    warn "$(msg "Could not create the cron job; add it manually under System → Advanced → Cron Jobs:" "Kon de cronjob niet aanmaken; voeg hem zelf toe onder Systeem → Geavanceerd → Cron Jobs:" "Cronjob konnte nicht angelegt werden; bitte manuell unter System → Erweitert → Cron Jobs anlegen:")"
+    say "  $cmd"
+  fi
+}
+remove_cron_job(){
+  local id; id="$(cron_job_id)"
+  [[ -n "$id" ]] || return 0
+  if $SUDO midclt call cronjob.delete "$id" >/dev/null; then ok "$(msg "Automatic-update cron job removed." "Cronjob voor automatische updates verwijderd." "Cronjob für automatische Updates entfernt.")"; fi
+}
 choose_port(){
   local label="$1" preferred="$2" allowed="${3:-}" p candidate
   if [[ -n "$allowed" && "$preferred" == "$allowed" ]]; then read -rp "$label port [$preferred]: " p; p="${p:-$preferred}"; [[ "$p" == "$allowed" ]] && { printf '%s' "$p"; return; }; fi
@@ -265,15 +381,22 @@ choose_port(){
   printf '%s' "$p"
 }
 
-clear || true
+$UNATTENDED || clear || true
 say "${BOLD}Immich Toolbox ${TOOLBOX_VERSION}${RESET}"
 say "============================================================"
-say "Choose language / Kies taal / Sprache wählen"
-say "  [1] English"
-say "  [2] Nederlands"
-say "  [3] Deutsch"
-read -rp "Choice / Keuze / Auswahl [1]: " LC
-case "${LC:-1}" in 2) LANG_CODE=nl;; 3) LANG_CODE=de;; *) LANG_CODE=en;; esac
+if [[ -n "$ARG_LANG" ]]; then
+  LANG_CODE="$ARG_LANG"
+elif $UNATTENDED; then
+  LANG_CODE=en
+else
+  say "Choose language / Kies taal / Sprache wählen"
+  say "  [1] English"
+  say "  [2] Nederlands"
+  say "  [3] Deutsch"
+  read -rp "Choice / Keuze / Auswahl [1]: " LC
+  case "${LC:-1}" in 2) LANG_CODE=nl;; 3) LANG_CODE=de;; *) LANG_CODE=en;; esac
+fi
+$UNATTENDED && say "$(date '+%Y-%m-%d %H:%M:%S') unattended update"
 
 EXISTING_JSON="$($SUDO midclt call app.query 2>/dev/null || echo '[]')"
 EXISTS=false
@@ -286,7 +409,10 @@ PY
 then EXISTS=true; fi
 
 MODE=create
-if $EXISTS; then
+if [[ "$ARG_MODE" == update ]]; then
+  $EXISTS || die "$(msg "--update: Immich Toolbox is not installed yet; run the installer without options first." "--update: Immich Toolbox is nog niet geïnstalleerd; draai de installer eerst zonder opties." "--update: Immich Toolbox ist noch nicht installiert; Installer zuerst ohne Optionen starten.")"
+  MODE=update
+elif $EXISTS; then
   say
   case "$LANG_CODE" in
     nl) warn "Er bestaat al een Immich Toolbox installatie."; say "  [1] Update uitvoeren (huidige configuratie + data behouden)"; say "  [2] Configuratie wijzigen / opnieuw instellen"; say "  [3] Immich Toolbox verwijderen"; say "  [4] Stoppen"; read -rp "Keuze [1]: " CH;;
@@ -303,8 +429,8 @@ if $EXISTS; then
       say "  [3] Cancel"
       read -rp "Choice [1]: " RM
       case "${RM:-1}" in
-        1) yesno "Remove immichtoolbox but keep volumes/data?" N || exit 0; run_job app.delete "$APP_NAME" '{"remove_images":false,"remove_ix_volumes":false,"force_remove_ix_volumes":false,"force_remove_custom_app":false}'; ok "Immich Toolbox removed; TrueNAS-managed volumes were kept."; exit 0;;
-        2) warn "This can permanently delete Toolbox-managed data."; yesno "Really remove app AND TrueNAS-managed volumes?" N || exit 0; run_job app.delete "$APP_NAME" '{"remove_images":false,"remove_ix_volumes":true,"force_remove_ix_volumes":false,"force_remove_custom_app":false}'; ok "Immich Toolbox and TrueNAS-managed volumes removed."; exit 0;;
+        1) yesno "Remove immichtoolbox but keep volumes/data?" N || exit 0; run_job app.delete "$APP_NAME" '{"remove_images":false,"remove_ix_volumes":false,"force_remove_ix_volumes":false,"force_remove_custom_app":false}'; ok "Immich Toolbox removed; TrueNAS-managed volumes were kept."; remove_cron_job; exit 0;;
+        2) warn "This can permanently delete Toolbox-managed data."; yesno "Really remove app AND TrueNAS-managed volumes?" N || exit 0; run_job app.delete "$APP_NAME" '{"remove_images":false,"remove_ix_volumes":true,"force_remove_ix_volumes":false,"force_remove_custom_app":false}'; ok "Immich Toolbox and TrueNAS-managed volumes removed."; remove_cron_job; exit 0;;
         *) exit 0;;
       esac;;
     *) exit 0;;
@@ -335,9 +461,13 @@ if [[ "$MODE" == update ]]; then
   if $ENABLE_FOLDER; then ROOT="$(env_of folderalbums ROOT_PATH)"; LEVEL="$(env_of folderalbums ALBUM_LEVELS)"; CRON="$(env_of folderalbums CRON_EXPRESSION)"; RUN_NOW="$(env_of folderalbums RUN_IMMEDIATELY)"; THUMB="$(env_of folderalbums SET_ALBUM_THUMBNAIL)"; [[ -n "$LEVEL" ]] || LEVEL=1; [[ -n "$CRON" ]] || CRON='0 3 * * *'; [[ "$CRON" == '0 3 * * *' ]] && SCHEDULE_LABEL='Daily at 03:00' || SCHEDULE_LABEL="$CRON"; fi
   if $ENABLE_PET; then PET_PORT="$(published_port pettagger 8000)"; [[ -n "$PET_PORT" ]] || PET_PORT=2287; fi
   if $ENABLE_POWER; then POWER_PORT="$(published_port powertools 3000)"; [[ -n "$POWER_PORT" ]] || POWER_PORT=8001; DB_HOST="$(env_of powertools DB_HOST)"; DB_PORT="$(env_of powertools DB_PORT)"; DB_USER="$(env_of powertools DB_USERNAME)"; DB_PASS="$(env_of powertools DB_PASSWORD)"; DB_NAME="$(env_of powertools DB_DATABASE_NAME)"; [[ -n "$DB_PORT" ]] || DB_PORT=5432; C="$(container_for_service powertools)"; [[ -n "$C" ]] && DB_NET="$($SUDO docker inspect "$C" --format '{{range $k,$v := .NetworkSettings.Networks}}{{if ne $k "ix-immichtoolbox_default"}}{{$k}}{{"\n"}}{{end}}{{end}}' 2>/dev/null | head -1 || true)"; fi
-  [[ -n "$API_KEY" ]] || { warn "Existing API key could not be read; asking once."; read -rsp "API key: " API_KEY; say; }
+  if [[ -z "$API_KEY" ]]; then
+    $UNATTENDED && die "Existing API key could not be read; run the installer interactively."
+    warn "Existing API key could not be read; asking once."; read -rsp "API key: " API_KEY; say
+  fi
   if $ENABLE_FOLDER; then
     if [[ -z "$ROOT" ]]; then
+      $UNATTENDED && die "Existing Folder Albums root could not be read; run the installer interactively."
       warn "Existing Folder Albums root could not be read."; select_root_path
     elif load_library_paths; then
       # Verify the stored ROOT_PATH against the real import paths: a mismatch makes
@@ -346,7 +476,9 @@ if [[ "$MODE" == update ]]; then
         warn "$(msg "The current Folder Albums ROOT_PATH does not match any Immich External Library import path:" "Het huidige Folder Albums ROOT_PATH komt niet overeen met een import path van een Immich External Library:" "Der aktuelle Folder-Albums-ROOT_PATH passt zu keinem Importpfad einer Immich External Library:")"
         while IFS= read -r b; do say "      $b"; done <<<"$mismatch"
         say "$(msg "Because of this no albums are created." "Daardoor worden er geen albums aangemaakt." "Deshalb werden keine Alben erstellt.")"
-        if yesno "$(msg "Choose the correct import path(s) now?" "Nu het juiste import path kiezen?" "Jetzt den richtigen Importpfad wählen?")" Y; then
+        if $UNATTENDED; then
+          warn "$(msg "Keeping ROOT_PATH unchanged in unattended mode; run the installer interactively to fix it." "ROOT_PATH blijft ongewijzigd in onbewaakte modus; draai de installer interactief om het te herstellen." "ROOT_PATH bleibt im unbeaufsichtigten Modus unverändert; Installer interaktiv starten.")"
+        elif yesno "$(msg "Choose the correct import path(s) now?" "Nu het juiste import path kiezen?" "Jetzt den richtigen Importpfad wählen?")" Y; then
           choose_library_paths || select_root_path
         fi
       else
@@ -528,19 +660,32 @@ case "$LANG_CODE" in
   *)  say "${BOLD}Summary${RESET}";;
 esac
  say "  Immich:      $BROWSER_URL"; say "  Dashboard:   http://${DETECTED_IP}:${DASHBOARD_PORT}"; say "  API key:     configured (hidden)"; $ENABLE_FOLDER && say "  Folder:      $ROOT • $CRON"; $ENABLE_PET && say "  Pet Tagger:  http://${DETECTED_IP}:${PET_PORT}"; $ENABLE_POWER && say "  Power Tools: http://${DETECTED_IP}:${POWER_PORT}"
-if [[ "$MODE" == update || "$MODE" == reconfigure ]]; then case "$LANG_CODE" in
-  nl) yesno "Update nu uitvoeren?" Y;;
-  de) yesno "Update jetzt ausführen?" Y;;
-  *)  yesno "Apply update now?" Y;;
-esac || exit 0; run_job app.update "$APP_NAME" "$(python3 - "$PAYLOAD" <<'PY'
+if [[ "$MODE" == update || "$MODE" == reconfigure ]]; then
+  yesno "$(msg "Apply update now?" "Update nu uitvoeren?" "Update jetzt ausführen?")" Y || exit 0
+  pull_images
+  run_job app.update "$APP_NAME" "$(python3 - "$PAYLOAD" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1])); d.pop('app_name',None); d.pop('custom_app',None); print(json.dumps(d))
 PY
-)"; ok "Immich Toolbox updated successfully."; else yesno "Install now?" Y || exit 0; run_job app.create "$(cat "$PAYLOAD")"; ok "Immich Toolbox installed successfully."; fi
+)" || die "$(msg "TrueNAS app.update failed." "TrueNAS app.update is mislukt." "TrueNAS app.update fehlgeschlagen.")"
+  # app.update only recreates containers whose compose config changed; containers
+  # still on an older image (new :cpu / :alpine pull) need a redeploy.
+  STALE="$(stale_services | paste -sd' ' -)"
+  if [[ -n "$STALE" ]]; then
+    say "$(msg "Newer images for: $STALE — redeploying." "Nieuwere images voor: $STALE — opnieuw uitrollen." "Neuere Images für: $STALE — wird neu ausgerollt.")"
+    run_job app.redeploy "$APP_NAME" || warn "$(msg "Redeploy failed; restart the app in TrueNAS → Apps." "Opnieuw uitrollen mislukt; herstart de app via TrueNAS → Apps." "Neu-Ausrollen fehlgeschlagen; App unter TrueNAS → Apps neu starten.")"
+  fi
+  ok "Immich Toolbox updated successfully."
+else
+  yesno "Install now?" Y || exit 0
+  run_job app.create "$(cat "$PAYLOAD")" || die "TrueNAS app.create failed."
+  ok "Immich Toolbox installed successfully."
+fi
 
-# Post-deploy checks: duplicate album creator apps and the Pet Tagger backfill.
+# Post-deploy checks: duplicate album creator apps, Pet Tagger backfill, auto-updates.
 if $ENABLE_FOLDER; then check_duplicate_album_apps; fi
 offer_pet_backfill
+offer_cron_job
 say
 say "============================================================"
 case "$LANG_CODE" in
@@ -571,15 +716,18 @@ case "$LANG_CODE" in
     say "  Configuratie wijzigen: voer de installer opnieuw uit en kies optie 2."
     say "  Verwijderen:           voer de installer opnieuw uit en kies optie 3."
     say "  Logs:                  TrueNAS → Apps → immichtoolbox → Workloads."
+    say "  Zonder vragen updaten: install.sh --update --yes (ook voor een cronjob)."
     ;;
   de)
     say "Verwaltung:"
     say "  Konfiguration ändern: Installer erneut starten und Option 2 wählen."
     say "  Entfernen:            Installer erneut starten und Option 3 wählen."
+    say "  Ohne Rückfragen:      install.sh --update --yes (auch für Cronjobs)."
     ;;
   *)
     say "Management:"
     say "  Reconfigure: run the installer again and choose option 2."
     say "  Remove:      run the installer again and choose option 3."
+    say "  Unattended:  install.sh --update --yes (also for a cron job)."
     ;;
 esac

@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.2.0 (unreleased)
+- New `--update --yes` mode for unattended updates (plus `--lang` and `--help`). It never prompts, never stops other apps and never changes `ROOT_PATH`; it only reports problems.
+- Optional TrueNAS cron job `Immich Toolbox auto-update` (weekly or daily), offered at the end of an interactive run and removed together with the Toolbox.
+- Updates now pull the module images again and redeploy only when a container still runs an older image, so floating tags (`pet-tagger:cpu`, `nginx:alpine`) pick up upstream releases.
+- Folder → Album creator `1.0.0` → `2.0.3` (same environment variables; upstream images follow the latest Immich API).
+- Immich Power Tools `v0.22.0` → `v0.26.0` (same environment variables).
+- `app.update`/`app.create` failures now stop the installer with a clear message.
+
+## 1.1.0
 - `install.sh` is now self-contained: the bootstrap no longer downloads the v0.4.0 core and patches it at runtime.
 - Folder → Album Sync: `ROOT_PATH` is chosen from the External Library import paths reported by `GET /api/libraries`; multiple paths are supported (comma separated). HTTP 401/403 is explained (admin key with `library.read` needed) and the Immich container mounts are shown as a hint. Manually entered paths are checked against the import paths.
 - Update mode re-checks the stored `ROOT_PATH` and offers to fix a mismatch (cause of `0 albums created`).
