@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0 (unreleased)
+- `install.sh` is now self-contained: the bootstrap no longer downloads the v0.4.0 core and patches it at runtime.
+- Folder → Album Sync: `ROOT_PATH` is chosen from the External Library import paths reported by `GET /api/libraries`; multiple paths are supported (comma separated). HTTP 401/403 is explained (admin key with `library.read` needed) and the Immich container mounts are shown as a hint. Manually entered paths are checked against the import paths.
+- Update mode re-checks the stored `ROOT_PATH` and offers to fix a mismatch (cause of `0 albums created`).
+- The dashboard shows the configured root path(s) and whether they match an Immich import path.
+- Detects other TrueNAS apps (e.g. `immichalbums`) or stray containers running `immich-folder-album-creator` and offers to stop the duplicate app.
+- Pet Tagger: dashboard button for a one-time full scan of existing photos (`POST /api/scan`) with live status; the installer offers it on update when pets with references exist.
+- Dashboard nginx answers `/stub_status`, `/basic_status`, `/nginx_status` (Netdata) and silences other common probe URLs instead of logging 404s.
+- The API key is passed to `curl` on stdin instead of the command line.
+- Added `library.read` to the documented Folder → Album permissions.
+
 ## 1.0.0
 - First stable Immich Toolbox release.
 - Promoted the tested Custom App installer flow to v1.0.0.
