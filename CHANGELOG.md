@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.4.1 (2026-11-23)
+- Face → Album setup: pressing Enter at "People for this album" now skips Face → Album (or finishes when albums were already added) instead of asking again forever.
+
 ## 1.4.0 (2026-11-23)
 - **Dashboard module switches with "Sign in with Immich"**: Immich administrators can switch Folder → Album, Pet Tagger, Power Tools and Face → Album on or off on the dashboard, and pick people/albums for Face → Album there. Other Immich users can only look.
 - New `control` service (`python:3.12-alpine`, no published port, no TrueNAS/Docker access). It checks logins against Immich (`/api/auth/login`, admin only, login token ended right away). Sessions are HttpOnly + SameSite=Strict cookies, with a CSRF header and a login rate limit. If the dashboard runs under the same host as Immich, you are signed in automatically from the Immich session.

@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.4.0"
+TOOLBOX_VERSION="1.4.1"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -270,7 +270,13 @@ for a in sorted(json.load(sys.stdin), key=lambda a:(a.get("albumName") or "").lo
     fi
     say; say "$(msg "Named people in Immich:" "Personen met een naam in Immich:" "Benannte Personen in Immich:")"
     n=1; for row in "${people[@]}"; do printf '  [%d] %s\n' "$n" "${row#*$'\t'}"; ((n++)); done
-    read -rp "$(msg "People for this album (numbers, e.g. 1,3): " "Personen voor dit album (nummers, bv. 1,3): " "Personen für dieses Album (Nummern, z. B. 1,3): ")" sel
+    read -rp "$(msg "People for this album (numbers, e.g. 1,3; Enter = done/skip): " "Personen voor dit album (nummers, bv. 1,3; Enter = klaar/overslaan): " "Personen für dieses Album (Nummern, z. B. 1,3; Enter = fertig/überspringen): ")" sel
+    if [[ -z "${sel// /}" ]]; then
+      # Empty answer: stop adding albums (skip Face → Album when none were added).
+      [[ -n "$FACE_RULES" ]] && break
+      say "$(msg "Face → Album skipped. You can set it up later on the dashboard or with option 2." "Face → Album overgeslagen. Je kunt het later instellen via het dashboard of met optie 2." "Face → Album übersprungen. Später im Dashboard oder mit Option 2 einrichten.")"
+      return 1
+    fi
     faces=""; names=""
     IFS=',' read -ra _sel <<<"${sel// /}"
     for n in "${_sel[@]}"; do
