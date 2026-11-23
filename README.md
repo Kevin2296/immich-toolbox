@@ -230,14 +230,6 @@ The installer sends the API key to `curl` on stdin, so it does not appear in the
 
 The generated TrueNAS Custom App configuration contains credentials required by the selected services, so do not post exported app configuration publicly.
 
-## Extra: TrueNAS memory check
-
-A read-only helper that shows where the memory of your TrueNAS goes (apps, ZFS cache, VMs) and suggests leaner settings for known memory-hungry apps. It changes nothing.
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/extras/truenas-memory-check.sh) [--lang nl|en]
-```
-
 ## Upstream projects
 
 Immich Toolbox is an independent community project and is not affiliated with Immich, TrueNAS, or the upstream companion-tool authors.
