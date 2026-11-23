@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.5.2 (2026-11-23)
+- Pet Tagger: `MALLOC_ARENA_MAX=2` and `MALLOC_TRIM_THRESHOLD_=131072` so Python gives memory back after a scan. On one NAS, Pet Tagger stayed at ~1.2 GB after a scan and dropped to ~380 MB after a restart.
+
 ## 1.5.1 (2026-11-23)
 - Fixed Reconfigure: the ports of the Toolbox's own Dashboard, Pet Tagger and Power Tools were treated as "already in use". The installer then suggested another port, or stopped when you kept the current one. The current ports are now the default and are accepted.
 - Reconfigure keeps the current Folder → Album root path, album level and schedule as defaults (Enter = keep).

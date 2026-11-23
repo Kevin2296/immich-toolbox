@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.5.1"
+TOOLBOX_VERSION="1.5.2"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -1404,7 +1404,7 @@ if c['folder']:
   if c.get('thumb'):e['SET_ALBUM_THUMBNAIL']=c['thumb']
   services['folderalbums']={'image':sys.argv[3],'restart':'unless-stopped','extra_hosts':eh,'environment':e}
 if c['pet']:
-  services['pettagger']={'image':sys.argv[4],'restart':'unless-stopped','extra_hosts':eh,'environment':{'IMMICH_URL':c['internal'],'IMMICH_API_KEY':c['api'],'IMMICH_EXTERNAL_URL':c['browser'],'POLL_INTERVAL':'3600','GPU_WORKERS':'1'},'ports':[f"{c['pet_port']}:8000"],'volumes':['pettagger_data:/data']};volumes['pettagger_data']={}
+  services['pettagger']={'image':sys.argv[4],'restart':'unless-stopped','extra_hosts':eh,'environment':{'IMMICH_URL':c['internal'],'IMMICH_API_KEY':c['api'],'IMMICH_EXTERNAL_URL':c['browser'],'POLL_INTERVAL':'3600','GPU_WORKERS':'1','MALLOC_ARENA_MAX':'2','MALLOC_TRIM_THRESHOLD_':'131072'},'ports':[f"{c['pet_port']}:8000"],'volumes':['pettagger_data:/data']};volumes['pettagger_data']={}
 if c['power']:
   x={'image':sys.argv[5],'restart':'unless-stopped','extra_hosts':eh,'environment':{'IMMICH_URL':c['internal'],'IMMICH_API_KEY':c['api'],'EXTERNAL_IMMICH_URL':c['browser'],'DB_HOST':c['db_host'],'DB_PORT':c['db_port'],'DB_USERNAME':c['db_user'],'DB_PASSWORD':c['db_pass'],'DB_DATABASE_NAME':c['db_name']},'ports':[f"{c['power_port']}:3000"],'volumes':['powertools_data:/app/data']}
   if c.get('db_net'): x['networks']=['default','immich_external']; networks['immich_external']={'external':True,'name':c['db_net']}
