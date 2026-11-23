@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.2 (2026-11-23)
+- Fixed: with many TrueNAS apps the existing-installation check failed with `python3: Argument list too long`, so the installer started a fresh install instead of offering Update, and `--update --yes` (cron job) stopped with "not installed yet". The app list is now passed on stdin.
+
 ## 1.3.1 (2026-11-23)
 - The installer now stops with a clear message when Docker is not running or `midclt call app.query` fails. Before, it could not see the existing installation and started a fresh install instead of offering Update.
 - All module questions now default to Yes (just press Enter to install everything) and are translated.
