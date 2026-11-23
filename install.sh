@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.5.0"
+TOOLBOX_VERSION="1.5.1"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -758,8 +758,15 @@ else
   yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" "$D_FACE" && ENABLE_FACE=true || true
   say "$(msg "Dashboard module switches: sign in on the dashboard with an Immich admin account to switch modules on/off. A TrueNAS cron job (root, every minute) applies the change." "Module-schakelaars op het dashboard: log op het dashboard in met een Immich-beheerdersaccount om modules aan/uit te zetten. Een TrueNAS-cronjob (root, elke minuut) voert de wijziging uit." "Modul-Schalter im Dashboard: mit einem Immich-Admin-Konto im Dashboard anmelden, um Module ein-/auszuschalten. Ein TrueNAS-Cronjob (root, jede Minute) übernimmt die Änderung.")"
   yesno "$(msg "Enable module switches on the dashboard?" "Module-schakelaars op het dashboard inschakelen?" "Modul-Schalter im Dashboard aktivieren?")" "$D_CONTROL" && ENABLE_CONTROL=true || true
-  OLD_KEY=""
+  OLD_KEY=""; CUR_DASH=""; CUR_PET=""; CUR_POWER=""
   if [[ "$MODE" == reconfigure ]]; then
+    # Ports already used by this Toolbox are not "busy" for it; settings default to the current values.
+    CUR_DASH="$(published_port dashboard 80)"; CUR_PET="$(published_port pettagger 8000)"; CUR_POWER="$(published_port powertools 3000)"
+    if has_service folderalbums; then
+      X="$(env_of folderalbums ROOT_PATH)"; [[ -n "$X" ]] && ROOT="$X"
+      X="$(env_of folderalbums ALBUM_LEVELS)"; [[ -n "$X" ]] && LEVEL="$X"
+      X="$(env_of folderalbums CRON_EXPRESSION)"; [[ -n "$X" ]] && CRON="$X"
+    fi
     OLD_KEY="$(env_of folderalbums API_KEY)"; [[ -n "$OLD_KEY" ]] || OLD_KEY="$(env_of pettagger IMMICH_API_KEY)"; [[ -n "$OLD_KEY" ]] || OLD_KEY="$(env_of powertools IMMICH_API_KEY)"; [[ -n "$OLD_KEY" ]] || OLD_KEY="$(env_of facealbums IMMICH_API_KEY)"
     X="$(env_of pettagger IMMICH_EXTERNAL_URL)"; [[ -n "$X" ]] || X="$(env_of powertools EXTERNAL_IMMICH_URL)"; [[ -n "$X" ]] && DEFAULT_URL="$X"
   fi
@@ -777,18 +784,21 @@ else
   [[ -n "$API_KEY" ]] || die "API key required."
   immich_get "$BROWSER_URL" /api/users/me >/dev/null
   if [[ "$(last_http_code)" == 200 ]]; then ok "API key accepted by Immich."; else warn "API key validation failed."; yesno "Continue anyway?" N || exit 1; fi
-  DASHBOARD_PORT="$(choose_port "Toolbox Dashboard" 30042)"
+  DASHBOARD_PORT="$(choose_port "Toolbox Dashboard" "${CUR_DASH:-30042}" "$CUR_DASH")"
   if $ENABLE_FOLDER; then
     select_root_path
-    read -rp "Album level [1]: " LEVEL; LEVEL="${LEVEL:-1}"; say "1) Daily 03:00  2) Every 6h  3) Hourly  4) Custom"; read -rp "Choice [1]: " SC; case "${SC:-1}" in 2) CRON='0 */6 * * *'; SCHEDULE_LABEL='Every 6 hours';; 3) CRON='0 * * * *'; SCHEDULE_LABEL='Hourly';; 4) read -rp "Cron: " CRON; SCHEDULE_LABEL="$CRON";; *) CRON='0 3 * * *'; SCHEDULE_LABEL='Daily at 03:00';; esac
+    read -rp "Album level [${LEVEL:-1}]: " X; LEVEL="${X:-${LEVEL:-1}}"
+    case "$CRON" in '0 3 * * *') DSC=1;; '0 */6 * * *') DSC=2;; '0 * * * *') DSC=3;; *) DSC=4;; esac
+    say "1) Daily 03:00  2) Every 6h  3) Hourly  4) Custom"; read -rp "Choice [$DSC]: " SC
+    case "${SC:-$DSC}" in 2) CRON='0 */6 * * *'; SCHEDULE_LABEL='Every 6 hours';; 3) CRON='0 * * * *'; SCHEDULE_LABEL='Hourly';; 4) read -rp "Cron [$CRON]: " X; CRON="${X:-$CRON}"; SCHEDULE_LABEL="$CRON";; *) CRON='0 3 * * *'; SCHEDULE_LABEL='Daily at 03:00';; esac
     yesno "Run album sync immediately?" Y && RUN_NOW=true || RUN_NOW=false; yesno "Random album thumbnail?" Y && THUMB=random || THUMB=""
   fi
-  $ENABLE_PET && PET_PORT="$(choose_port "Pet Tagger" 2287)"
+  $ENABLE_PET && PET_PORT="$(choose_port "Pet Tagger" "${CUR_PET:-2287}" "$CUR_PET")"
   if $ENABLE_FACE && ! configure_face_albums; then
     warn "$(msg "Face → Album is not configured and will be skipped." "Face → Album is niet ingesteld en wordt overgeslagen." "Face → Album ist nicht eingerichtet und wird übersprungen.")"
     ENABLE_FACE=false
   fi
-  if $ENABLE_POWER; then POWER_PORT="$(choose_port "Power Tools" 8001)"; detect_immich_db; read -rp "DB host [${DB_HOST:-immich-postgres}]: " X; DB_HOST="${X:-${DB_HOST:-immich-postgres}}"; read -rp "DB port [5432]: " X; DB_PORT="${X:-5432}"; read -rp "DB user [${DB_USER:-postgres}]: " X; DB_USER="${X:-${DB_USER:-postgres}}"; [[ -n "$DB_PASS" ]] || { read -rsp "DB password: " DB_PASS; say; }; read -rp "DB name [${DB_NAME:-immich}]: " X; DB_NAME="${X:-${DB_NAME:-immich}}"; fi
+  if $ENABLE_POWER; then POWER_PORT="$(choose_port "Power Tools" "${CUR_POWER:-8001}" "$CUR_POWER")"; detect_immich_db; read -rp "DB host [${DB_HOST:-immich-postgres}]: " X; DB_HOST="${X:-${DB_HOST:-immich-postgres}}"; read -rp "DB port [5432]: " X; DB_PORT="${X:-5432}"; read -rp "DB user [${DB_USER:-postgres}]: " X; DB_USER="${X:-${DB_USER:-postgres}}"; [[ -n "$DB_PASS" ]] || { read -rsp "DB password: " DB_PASS; say; }; read -rp "DB name [${DB_NAME:-immich}]: " X; DB_NAME="${X:-${DB_NAME:-immich}}"; fi
 fi
 
 INTERNAL_API="${INTERNAL_BASE%/}/api"

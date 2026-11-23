@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1 (2026-11-23)
+- Fixed Reconfigure: the ports of the Toolbox's own Dashboard, Pet Tagger and Power Tools were treated as "already in use". The installer then suggested another port, or stopped when you kept the current one. The current ports are now the default and are accepted.
+- Reconfigure keeps the current Folder → Album root path, album level and schedule as defaults (Enter = keep).
+
 ## 1.5.0 (2026-11-23)
 - Dashboard tabs: **Pet Tagger** and **Power Tools** open inside the dashboard (embedded), with an "Open in new window" button per tool. Tabs only appear for enabled modules and are remembered in the URL (`#pet`, `#power`).
 - Immich and the API-key page now always open in a new browser tab.
