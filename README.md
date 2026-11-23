@@ -4,7 +4,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 
 > This project does not replace or fork Immich and does not bundle the source code of upstream tools. It orchestrates their published container images and keeps attribution to each project.
 
-## Current stable version: v1.5.2
+## Current stable version: v1.5.3
 
 ### Included modules
 
@@ -17,7 +17,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 ## Stable one-line installation
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.5.2/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.5.3/install.sh)
 ```
 
 For development/testing, `main` may contain newer changes (see [CHANGELOG](CHANGELOG.md)):
@@ -207,6 +207,10 @@ SYNC_MODE=0
 ```
 
 The Toolbox does not enable automated cleanup/delete behavior by default.
+
+## Memory limits
+
+Every Toolbox container has a memory limit, set well above its normal use: dashboard 64 MB, control 128 MB, Folder → Album 512 MB, Face → Album 512 MB, Power Tools 512 MB, Pet Tagger 2 GB (it uses about 0.4 GB idle and about 1.4 GB while scanning).
 
 ## Default ports
 
