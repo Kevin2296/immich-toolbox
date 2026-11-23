@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.5.3 (2026-11-23)
+- Memory limits (`mem_limit`) for every Toolbox container: dashboard 64 MB, control 128 MB, folderalbums 512 MB, facealbums 512 MB, powertools 512 MB, pettagger 2 GB. They are caps well above normal use, so no container can take the whole NAS. Existing installations get them with a normal Update or the auto-update cron job.
+
 ## 1.5.2 (2026-11-23)
 - Pet Tagger: `MALLOC_ARENA_MAX=2` and `MALLOC_TRIM_THRESHOLD_=131072` so Python gives memory back after a scan. On one NAS, Pet Tagger stayed at ~1.2 GB after a scan and dropped to ~380 MB after a restart.
 

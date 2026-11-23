@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.5.2"
+TOOLBOX_VERSION="1.5.3"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -1435,6 +1435,12 @@ if c['control']:
   cs=base64.b64encode(gzip.compress(open(sys.argv[10],'rb').read())).decode()
   mods=','.join(k for k in ('folder','pet','power','face') if c[k])
   services['control']={'image':sys.argv[9],'restart':'unless-stopped','extra_hosts':eh,'entrypoint':['/bin/sh','-c'],'command':[f"echo {cs} | base64 -d | gunzip > /tmp/control.py && exec python3 -u /tmp/control.py"],'environment':{'TZ':c['timezone'],'IMMICH_URL':c['internal'],'IMMICH_API_KEY':c['api'],'TOOLBOX_MODULES':mods,'FACE_RULES':c['face_rules'] if c['face'] else '','FACE_INTERVAL':str(c.get('face_interval') or '3600')},'volumes':['control_data:/data']};volumes['control_data']={}
+# Memory limits: caps against runaway use, well above normal use (measured on a
+# 32 GB NAS: dashboard ~10 MB, control ~15 MB, folderalbums ~10 MB idle,
+# powertools ~95 MB, pettagger ~0.4 GB idle / ~1.4 GB while scanning).
+MEM={'dashboard':'64m','control':'128m','folderalbums':'512m','facealbums':'512m','powertools':'512m','pettagger':'2g'}
+for name,svc in services.items():
+  if name in MEM: svc['mem_limit']=MEM[name]
 co={'services':services}
 if volumes:co['volumes']=volumes
 if networks:co['networks']=networks
