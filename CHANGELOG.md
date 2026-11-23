@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0 (2026-11-23)
+- **Dashboard module switches with "Sign in with Immich"**: Immich administrators can switch Folder → Album, Pet Tagger, Power Tools and Face → Album on or off on the dashboard, and pick people/albums for Face → Album there. Other Immich users can only look.
+- New `control` service (`python:3.12-alpine`, no published port, no TrueNAS/Docker access). It checks logins against Immich (`/api/auth/login`, admin only, login token ended right away). Sessions are HttpOnly + SameSite=Strict cookies, with a CSRF header and a login rate limit. If the dashboard runs under the same host as Immich, you are signed in automatically from the Immich session.
+- New `--apply-request` mode and TrueNAS cron job `Immich Toolbox dashboard changes` (every minute, only acts when a request is waiting, with a lock). It applies the request with the normal update flow and reports the status back to the dashboard.
+- The installer asks whether to enable module switches (default yes; Reconfigure shows the current state). Removing the Toolbox also removes this cron job.
+- Dashboard API paths are relative, so the dashboard also works under a sub-path behind a reverse proxy.
+
 ## 1.3.3 (2026-11-23)
 - Reconfigure (option 2) now shows which modules are currently on or off, and Enter keeps the current state. Before, every module defaulted to Yes.
 - Reconfigure reuses the existing API key and Immich URL: press Enter to keep the key.

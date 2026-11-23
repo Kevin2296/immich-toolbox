@@ -4,7 +4,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 
 > This project does not replace or fork Immich and does not bundle the source code of upstream tools. It orchestrates their published container images and keeps attribution to each project.
 
-## Current stable version: v1.3.3
+## Current stable version: v1.4.0
 
 ### Included modules
 
@@ -12,12 +12,12 @@ A community installer that bundles optional Immich companion tools into **one Tr
 - **Pet Tagger** using [tedornitier/immich-pet-tagger](https://github.com/tedornitier/immich-pet-tagger)
 - **Immich Power Tools** using [immich-power-tools/immich-power-tools](https://github.com/immich-power-tools/immich-power-tools)
 - **Face → Album** using [romainrbr/immich-face-to-album](https://github.com/romainrbr/immich-face-to-album)
-- **Toolbox Dashboard** (always included)
+- **Toolbox Dashboard** (always included), optionally with **module switches after "Sign in with Immich"**
 
 ## Stable one-line installation
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.3.3/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.4.0/install.sh)
 ```
 
 For development/testing, `main` may contain newer changes (see [CHANGELOG](CHANGELOG.md)):
@@ -59,6 +59,7 @@ At the end of an interactive install/update the installer offers to create a Tru
 |---|---|---|
 | Dashboard | `nginx:alpine` | floating tag: every update run pulls the newest image |
 | Pet Tagger | `ghcr.io/tedornitier/immich-pet-tagger:cpu` | floating tag: every update run pulls the newest image |
+| Dashboard control | `python:3.12-alpine` | floating tag (Python 3.12 patch releases): every update run pulls the newest image |
 | Folder → Album | `salvoxia/immich-folder-album-creator:2.0.3` | pinned: checked weekly (see below), then rolled out by the next update run |
 | Power Tools | `ghcr.io/immich-power-tools/immich-power-tools:v0.26.0` | pinned, same as above |
 | Face → Album | `rbrucker/immich-face-to-album:1.0.17` | pinned, same as above |
@@ -95,6 +96,25 @@ Pet Tagger's hourly background poll only processes assets uploaded **after** its
 - A scan only makes sense once at least one pet has reference photos, so a fresh install does not start one; it tells you to enroll your pets first.
 - The dashboard has a **Start full scan** button (with a "photos taken since" date), a stop button and live status.
 - After an install/update, if pets with references already exist (update, or a kept `pettagger_data` volume), the installer offers to start the full scan right away (default: no — on CPU this can take hours).
+
+## Dashboard: switch modules on/off ("Sign in with Immich")
+
+With **module switches** enabled (the installer asks; default yes) the dashboard gets a **Modules** panel:
+
+- **Sign in with Immich**: you sign in with your normal Immich e-mail and password. The dashboard asks Immich whether they are correct and whether you are an **Immich administrator**. Only administrators can change modules; other Immich users can only look. The Immich login token is ended right away; the dashboard keeps its own session cookie (HttpOnly, SameSite=Strict, 12 hours). After 5 wrong passwords from one address, login is blocked for 5 minutes.
+- If the dashboard runs under the **same address as Immich** behind your reverse proxy (e.g. `https://immich.example.com/toolbox/`), the browser already sends your Immich login and you are signed in automatically.
+- Switch Folder → Album, Pet Tagger, Power Tools and Face → Album on or off. For Face → Album you pick the people and the album (or a new album) on the page, just like in the installer.
+- Data of switched-off modules (volumes) is kept.
+
+How a change is applied:
+
+1. The small `control` container (`python:3.12-alpine`, no published port; reachable only through the dashboard at `/control/api/`) writes the request to its `control_data` volume. It has **no access to TrueNAS or Docker**.
+2. A TrueNAS cron job **`Immich Toolbox dashboard changes`** (System → Advanced → Cron Jobs, root, every minute) checks whether a request is waiting. Only then does it download the latest `install.sh` from `main` and run it with `--apply-request`. That works like `--update --yes` with the requested modules, so the installer's checks apply. A lock prevents two runs at the same time.
+3. The dashboard shows "waiting / applying / done" and reloads when done. Errors (for example: Folder → Album cannot read the import paths) are shown on the dashboard and mailed by TrueNAS if mail is set up.
+
+Newly switched-on modules get defaults: Folder → Album uses **all** External Library import paths (needs the admin key with `library.read`); Pet Tagger and Power Tools get the first free port from 2287 / 8001; Power Tools detects the Immich database. If that is not possible the change is refused with a message, and you enable the module once with the installer instead.
+
+> The cron job runs the installer from `main` as root, like the auto-update job. Turn module switches off with installer option 2 if you do not want this.
 
 ## Dashboard
 
@@ -157,7 +177,7 @@ Optional review-tag permissions:
 
 ### Face → Album
 
-- `person.read`
+- `person.read` (also used by the dashboard face picker)
 - `asset.read`
 - `album.read`
 - `albumAsset.create`
