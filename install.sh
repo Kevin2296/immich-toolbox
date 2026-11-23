@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.3.1"
+TOOLBOX_VERSION="1.3.2"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -500,12 +500,11 @@ d=json.load(sys.stdin); print(((d.get("status") or "")+" "+(d.get("description")
   die "$(msg "Docker is not running, so the installer cannot see your apps. Check TrueNAS → Apps (Apps service running, pool selected under Configuration → Choose Pool), then run the installer again. Nothing was changed." "Docker draait niet, dus de installer kan je apps niet zien. Controleer TrueNAS → Apps (Apps-service actief, pool gekozen onder Configuration → Choose Pool) en start de installer daarna opnieuw. Er is niets gewijzigd." "Docker läuft nicht, daher sieht der Installer deine Apps nicht. Prüfe TrueNAS → Apps (Apps-Dienst aktiv, Pool unter Configuration → Choose Pool gewählt) und starte den Installer erneut. Es wurde nichts geändert.")"
 fi
 EXISTS=false
-if python3 - "$EXISTING_JSON" <<'PY'
-import json,sys
-try:r=json.loads(sys.argv[1])
+# Feed the app list via stdin: with many apps it exceeds the 128 KB argv limit.
+if python3 -c 'import json,sys
+try:r=json.load(sys.stdin)
 except Exception:r=[]
-raise SystemExit(0 if any((x.get('id')=='immichtoolbox' or x.get('name')=='immichtoolbox') for x in r if isinstance(x,dict)) else 1)
-PY
+raise SystemExit(0 if any((x.get("id")=="immichtoolbox" or x.get("name")=="immichtoolbox") for x in r if isinstance(x,dict)) else 1)' <<<"$EXISTING_JSON"
 then EXISTS=true; fi
 
 MODE=create
