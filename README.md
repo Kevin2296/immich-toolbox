@@ -4,7 +4,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 
 > This project does not replace or fork Immich and does not bundle the source code of upstream tools. It orchestrates their published container images and keeps attribution to each project.
 
-## Current stable version: v1.5.1
+## Current stable version: v1.5.2
 
 ### Included modules
 
@@ -17,7 +17,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 ## Stable one-line installation
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.5.1/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.5.2/install.sh)
 ```
 
 For development/testing, `main` may contain newer changes (see [CHANGELOG](CHANGELOG.md)):
@@ -229,6 +229,14 @@ No personal server address, API key, pet name, library path, or database passwor
 The installer sends the API key to `curl` on stdin, so it does not appear in the process list or in terminal output.
 
 The generated TrueNAS Custom App configuration contains credentials required by the selected services, so do not post exported app configuration publicly.
+
+## Extra: TrueNAS memory check
+
+A read-only helper that shows where the memory of your TrueNAS goes (apps, ZFS cache, VMs) and suggests leaner settings for known memory-hungry apps. It changes nothing.
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/main/extras/truenas-memory-check.sh) [--lang nl|en]
+```
 
 ## Upstream projects
 
