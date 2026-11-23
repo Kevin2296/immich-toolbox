@@ -4,7 +4,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 
 > This project does not replace or fork Immich and does not bundle the source code of upstream tools. It orchestrates their published container images and keeps attribution to each project.
 
-## Current stable version: v1.4.1
+## Current stable version: v1.5.0
 
 ### Included modules
 
@@ -17,7 +17,7 @@ A community installer that bundles optional Immich companion tools into **one Tr
 ## Stable one-line installation
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.4.1/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Kevin2296/immich-toolbox/v1.5.0/install.sh)
 ```
 
 For development/testing, `main` may contain newer changes (see [CHANGELOG](CHANGELOG.md)):
@@ -121,7 +121,7 @@ Newly switched-on modules get defaults: Folder → Album uses **all** External L
 The dashboard defaults to port `30042` and provides:
 
 - Immich and API-key links
-- Pet Tagger and Power Tools launch buttons
+- tabs that open **Pet Tagger** and **Power Tools inside the dashboard** (embedded), each with an "Open in new window" button; Immich itself always opens in a new browser tab. If a tool stays empty, it blocks embedding or the dashboard runs over https (the tools use http on their own ports); use the new-window button then
 - Folder → Album configuration details, including the configured `ROOT_PATH`(s) and whether they match an Immich import path
 - Pet Tagger full-scan (backfill) button with status
 - quiet monitoring endpoints: `/stub_status`, `/basic_status` and `/nginx_status` return nginx `stub_status` (for Netdata and similar agents); other common probe URLs return 404 without being logged

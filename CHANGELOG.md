@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0 (2026-11-23)
+- Dashboard tabs: **Pet Tagger** and **Power Tools** open inside the dashboard (embedded), with an "Open in new window" button per tool. Tabs only appear for enabled modules and are remembered in the URL (`#pet`, `#power`).
+- Immich and the API-key page now always open in a new browser tab.
+- Embedded tools use the address you opened the dashboard with, so they also work when you use another IP or hostname for the NAS.
+
 ## 1.4.1 (2026-11-23)
 - Face → Album setup: pressing Enter at "People for this album" now skips Face → Album (or finishes when albums were already added) instead of asking again forever.
 
