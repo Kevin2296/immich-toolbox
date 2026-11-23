@@ -59,9 +59,17 @@ At the end of an interactive install/update the installer offers to create a Tru
 |---|---|---|
 | Dashboard | `nginx:alpine` | floating tag: every update run pulls the newest image |
 | Pet Tagger | `ghcr.io/tedornitier/immich-pet-tagger:cpu` | floating tag: every update run pulls the newest image |
-| Folder → Album | `salvoxia/immich-folder-album-creator:2.0.3` | pinned: bumped in this repo after checking upstream for breaking changes, then rolled out by the next update run |
+| Folder → Album | `salvoxia/immich-folder-album-creator:2.0.3` | pinned: checked weekly (see below), then rolled out by the next update run |
 | Power Tools | `ghcr.io/immich-power-tools/immich-power-tools:v0.26.0` | pinned, same as above |
 | Face → Album | `rbrucker/immich-face-to-album:1.0.17` | pinned, same as above |
+
+Upstream tools usually publish a new release after a (big) Immich update. The [`Upstream updates`](.github/workflows/upstream-updates.yml) GitHub Action checks the pinned modules every Monday:
+
+- **patch/minor** releases (e.g. `2.0.3` → `2.0.4` or `2.1.0`) are bumped in one PR together with a new Toolbox patch version. After `bash -n` and `shellcheck` pass, the PR is **merged automatically**, so the auto-update cron job installs it on its next run
+- **major** releases (e.g. `2.x` → `3.0`) get their own PR that is **never merged automatically**: read the upstream release notes and merge it yourself
+- an update is only proposed once the upstream image with that tag actually exists
+
+The Action needs **Settings → Actions → General → Workflow permissions → "Read and write permissions"** and **"Allow GitHub Actions to create and approve pull requests"**. It can also be started by hand (Actions → Upstream updates → Run workflow).
 
 Since v1.1.0 an update also **re-checks the Folder Albums `ROOT_PATH`** against the External Library import paths reported by Immich. If the stored path is not an import path (or a folder below one) — which makes the album creator log `0 albums created` on every run — the installer shows the mismatch and offers to pick the correct path(s).
 

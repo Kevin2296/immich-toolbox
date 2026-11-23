@@ -1,0 +1,29 @@
+name: Upstream updates
+
+# Weekly check for new releases of the pinned module images (see
+# .github/scripts/upstream_updates.py). Patch/minor updates are merged
+# automatically after bash -n + shellcheck; major updates get a PR for review.
+on:
+  schedule:
+    - cron: "0 5 * * 1"   # Mondays 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-updates
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Check upstream releases and open/merge PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/upstream_updates.py
