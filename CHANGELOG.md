@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1 (2026-11-23)
+- The installer now stops with a clear message when Docker is not running or `midclt call app.query` fails. Before, it could not see the existing installation and started a fresh install instead of offering Update.
+- Stable installation branch `v1.3.1`.
+
 ## 1.3.0 (2026-11-23)
 - Stable installation branch `v1.3.0`; the README one-line installer now points to it.
 - New module **Face → Album** using [romainrbr/immich-face-to-album](https://github.com/romainrbr/immich-face-to-album) (`rbrucker/immich-face-to-album:1.0.17`): auto-updating albums per person or group of people.
