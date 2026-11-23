@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.3.2"
+TOOLBOX_VERSION="1.3.3"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -615,18 +615,35 @@ esac
 esac || { warn "Use option 2 (Reconfigure) instead."; exit 0; }
 else
   say; case "$LANG_CODE" in nl) say "Eén TrueNAS App met optionele Immich-uitbreidingen.";; de) say "Eine TrueNAS App mit optionalen Immich-Erweiterungen.";; *) say "One TrueNAS App with optional Immich companion tools.";; esac
-  say "  [1] Folder → Album Sync"; say "  [2] Pet Tagger"; say "  [3] Immich Power Tools"; say "  [4] Face → Album (auto-updating albums per person)"; say "  ✓ Toolbox Dashboard (always included)"; say
-  yesno "$(msg "Enable Folder → Album Sync?" "Folder → Album Sync inschakelen?" "Folder → Album Sync aktivieren?")" Y && ENABLE_FOLDER=true || true
-  yesno "$(msg "Enable Pet Tagger?" "Pet Tagger inschakelen?" "Pet Tagger aktivieren?")" Y && ENABLE_PET=true || true
-  yesno "$(msg "Enable Immich Power Tools?" "Immich Power Tools inschakelen?" "Immich Power Tools aktivieren?")" Y && ENABLE_POWER=true || true
-  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" Y && ENABLE_FACE=true || true
+  # Reconfigure: show what is installed now and keep it on Enter. Fresh install: everything defaults to Yes.
+  D_FOLDER=Y; D_PET=Y; D_POWER=Y; D_FACE=Y
+  if [[ "$MODE" == reconfigure ]]; then
+    has_service folderalbums || D_FOLDER=N; has_service pettagger || D_PET=N; has_service powertools || D_POWER=N; has_service facealbums || D_FACE=N
+    say "$(msg "Current state (press Enter to keep it):" "Huidige stand (Enter = zo laten):" "Aktueller Stand (Enter = beibehalten):")"
+  fi
+  mod_line(){ local st=""; if [[ "$MODE" == reconfigure ]]; then if [[ "$2" == Y ]]; then st="  ${GREEN}$(msg "[on]" "[aan]" "[an]")${RESET}"; else st="  $(msg "[off]" "[uit]" "[aus]")"; fi; fi; say "  $1$st"; }
+  mod_line "[1] Folder → Album Sync" "$D_FOLDER"; mod_line "[2] Pet Tagger" "$D_PET"; mod_line "[3] Immich Power Tools" "$D_POWER"; mod_line "[4] Face → Album $(msg "(auto-updating albums per person)" "(automatische albums per persoon)" "(automatische Alben pro Person)")" "$D_FACE"; say "  ✓ Toolbox Dashboard $(msg "(always included)" "(altijd inbegrepen)" "(immer enthalten)")"; say
+  yesno "$(msg "Enable Folder → Album Sync?" "Folder → Album Sync inschakelen?" "Folder → Album Sync aktivieren?")" "$D_FOLDER" && ENABLE_FOLDER=true || true
+  yesno "$(msg "Enable Pet Tagger?" "Pet Tagger inschakelen?" "Pet Tagger aktivieren?")" "$D_PET" && ENABLE_PET=true || true
+  yesno "$(msg "Enable Immich Power Tools?" "Immich Power Tools inschakelen?" "Immich Power Tools aktivieren?")" "$D_POWER" && ENABLE_POWER=true || true
+  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" "$D_FACE" && ENABLE_FACE=true || true
+  OLD_KEY=""
+  if [[ "$MODE" == reconfigure ]]; then
+    OLD_KEY="$(env_of folderalbums API_KEY)"; [[ -n "$OLD_KEY" ]] || OLD_KEY="$(env_of pettagger IMMICH_API_KEY)"; [[ -n "$OLD_KEY" ]] || OLD_KEY="$(env_of powertools IMMICH_API_KEY)"; [[ -n "$OLD_KEY" ]] || OLD_KEY="$(env_of facealbums IMMICH_API_KEY)"
+    X="$(env_of pettagger IMMICH_EXTERNAL_URL)"; [[ -n "$X" ]] || X="$(env_of powertools EXTERNAL_IMMICH_URL)"; [[ -n "$X" ]] && DEFAULT_URL="$X"
+  fi
   [[ -n "$DEFAULT_URL" ]] && ok "Detected Immich URL: $DEFAULT_URL"
   read -rp "Immich URL used in your browser${DEFAULT_URL:+ [$DEFAULT_URL]}: " BROWSER_URL; BROWSER_URL="${BROWSER_URL:-$DEFAULT_URL}"; BROWSER_URL="${BROWSER_URL%/}"; [[ -n "$BROWSER_URL" ]] || die "Immich URL required."
   INTERNAL_BASE="http://host.docker.internal:${DETECTED_PORT}"
   say "API key settings: ${BROWSER_URL}/user-settings?isOpen=api-keys"
   say "Create ONE API key named 'Immich Toolbox'. If Power Tools is enabled, choose Select all."
   $ENABLE_FOLDER && say "Folder → Album Sync: use an API key of an ADMIN user and include 'library.read', so the installer can read the External Library import paths."
-  read -rsp "API key: " API_KEY; say; [[ -n "$API_KEY" ]] || die "API key required."
+  if [[ -n "$OLD_KEY" ]]; then
+    read -rsp "API key $(msg "[Enter = keep current key]" "[Enter = huidige sleutel behouden]" "[Enter = aktuellen Schlüssel behalten]"): " API_KEY; say; API_KEY="${API_KEY:-$OLD_KEY}"
+  else
+    read -rsp "API key: " API_KEY; say
+  fi
+  [[ -n "$API_KEY" ]] || die "API key required."
   immich_get "$BROWSER_URL" /api/users/me >/dev/null
   if [[ "$(last_http_code)" == 200 ]]; then ok "API key accepted by Immich."; else warn "API key validation failed."; yesno "Continue anyway?" N || exit 1; fi
   DASHBOARD_PORT="$(choose_port "Toolbox Dashboard" 30042)"

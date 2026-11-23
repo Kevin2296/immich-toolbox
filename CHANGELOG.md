@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3 (2026-11-23)
+- Reconfigure (option 2) now shows which modules are currently on or off, and Enter keeps the current state. Before, every module defaulted to Yes.
+- Reconfigure reuses the existing API key and Immich URL: press Enter to keep the key.
+- The module list is translated.
+
 ## 1.3.2 (2026-11-23)
 - Fixed: with many TrueNAS apps the existing-installation check failed with `python3: Argument list too long`, so the installer started a fresh install instead of offering Update, and `--update --yes` (cron job) stopped with "not installed yet". The app list is now passed on stdin.
 
