@@ -2,6 +2,7 @@
 
 ## 1.3.1 (2026-11-23)
 - The installer now stops with a clear message when Docker is not running or `midclt call app.query` fails. Before, it could not see the existing installation and started a fresh install instead of offering Update.
+- All module questions now default to Yes (just press Enter to install everything) and are translated.
 - Stable installation branch `v1.3.1`.
 
 ## 1.3.0 (2026-11-23)

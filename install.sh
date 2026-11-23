@@ -617,10 +617,10 @@ esac || { warn "Use option 2 (Reconfigure) instead."; exit 0; }
 else
   say; case "$LANG_CODE" in nl) say "Eén TrueNAS App met optionele Immich-uitbreidingen.";; de) say "Eine TrueNAS App mit optionalen Immich-Erweiterungen.";; *) say "One TrueNAS App with optional Immich companion tools.";; esac
   say "  [1] Folder → Album Sync"; say "  [2] Pet Tagger"; say "  [3] Immich Power Tools"; say "  [4] Face → Album (auto-updating albums per person)"; say "  ✓ Toolbox Dashboard (always included)"; say
-  yesno "Enable Folder → Album Sync?" Y && ENABLE_FOLDER=true || true
-  yesno "Enable Pet Tagger?" Y && ENABLE_PET=true || true
-  yesno "Enable Immich Power Tools?" N && ENABLE_POWER=true || true
-  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" N && ENABLE_FACE=true || true
+  yesno "$(msg "Enable Folder → Album Sync?" "Folder → Album Sync inschakelen?" "Folder → Album Sync aktivieren?")" Y && ENABLE_FOLDER=true || true
+  yesno "$(msg "Enable Pet Tagger?" "Pet Tagger inschakelen?" "Pet Tagger aktivieren?")" Y && ENABLE_PET=true || true
+  yesno "$(msg "Enable Immich Power Tools?" "Immich Power Tools inschakelen?" "Immich Power Tools aktivieren?")" Y && ENABLE_POWER=true || true
+  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" Y && ENABLE_FACE=true || true
   [[ -n "$DEFAULT_URL" ]] && ok "Detected Immich URL: $DEFAULT_URL"
   read -rp "Immich URL used in your browser${DEFAULT_URL:+ [$DEFAULT_URL]}: " BROWSER_URL; BROWSER_URL="${BROWSER_URL:-$DEFAULT_URL}"; BROWSER_URL="${BROWSER_URL%/}"; [[ -n "$BROWSER_URL" ]] || die "Immich URL required."
   INTERNAL_BASE="http://host.docker.internal:${DETECTED_PORT}"
