@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # (commit 4af5776) at runtime and patched it with string replacements.
 
 APP_NAME="immichtoolbox"
-TOOLBOX_VERSION="1.3.0"
+TOOLBOX_VERSION="1.3.1"
 # Pinned images are bumped in this repo after checking upstream for breaking
 # changes; floating tags (:cpu, :alpine) are refreshed by every update run.
 FOLDER_IMAGE="salvoxia/immich-folder-album-creator:2.0.3"
@@ -488,7 +488,17 @@ else
 fi
 $UNATTENDED && say "$(date '+%Y-%m-%d %H:%M:%S') unattended update"
 
-EXISTING_JSON="$($SUDO midclt call app.query 2>/dev/null || echo '[]')"
+# Preflight: without the TrueNAS middleware and Docker the installer cannot see
+# an existing installation and would wrongly start a fresh install.
+if ! EXISTING_JSON="$($SUDO midclt call app.query 2>/dev/null)" || [[ -z "$EXISTING_JSON" ]]; then
+  die "$(msg "Cannot query TrueNAS apps (midclt call app.query failed). Run this in the TrueNAS shell (System → Shell) as an admin user." "Kan de TrueNAS-apps niet opvragen (midclt call app.query mislukt). Draai dit in de TrueNAS-shell (Systeem → Shell) als admin-gebruiker." "TrueNAS-Apps können nicht abgefragt werden (midclt call app.query fehlgeschlagen). Bitte in der TrueNAS-Shell (System → Shell) als Admin ausführen.")"
+fi
+if ! $SUDO docker info >/dev/null 2>&1; then
+  DOCKER_STATE="$($SUDO midclt call docker.status 2>/dev/null | python3 -c 'import json,sys
+d=json.load(sys.stdin); print(((d.get("status") or "")+" "+(d.get("description") or "")).strip())' 2>/dev/null || true)"
+  [[ -n "$DOCKER_STATE" ]] && warn "TrueNAS docker.status: $DOCKER_STATE"
+  die "$(msg "Docker is not running, so the installer cannot see your apps. Check TrueNAS → Apps (Apps service running, pool selected under Configuration → Choose Pool), then run the installer again. Nothing was changed." "Docker draait niet, dus de installer kan je apps niet zien. Controleer TrueNAS → Apps (Apps-service actief, pool gekozen onder Configuration → Choose Pool) en start de installer daarna opnieuw. Er is niets gewijzigd." "Docker läuft nicht, daher sieht der Installer deine Apps nicht. Prüfe TrueNAS → Apps (Apps-Dienst aktiv, Pool unter Configuration → Choose Pool gewählt) und starte den Installer erneut. Es wurde nichts geändert.")"
+fi
 EXISTS=false
 if python3 - "$EXISTING_JSON" <<'PY'
 import json,sys
@@ -607,10 +617,10 @@ esac || { warn "Use option 2 (Reconfigure) instead."; exit 0; }
 else
   say; case "$LANG_CODE" in nl) say "Eén TrueNAS App met optionele Immich-uitbreidingen.";; de) say "Eine TrueNAS App mit optionalen Immich-Erweiterungen.";; *) say "One TrueNAS App with optional Immich companion tools.";; esac
   say "  [1] Folder → Album Sync"; say "  [2] Pet Tagger"; say "  [3] Immich Power Tools"; say "  [4] Face → Album (auto-updating albums per person)"; say "  ✓ Toolbox Dashboard (always included)"; say
-  yesno "Enable Folder → Album Sync?" Y && ENABLE_FOLDER=true || true
-  yesno "Enable Pet Tagger?" Y && ENABLE_PET=true || true
-  yesno "Enable Immich Power Tools?" N && ENABLE_POWER=true || true
-  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" N && ENABLE_FACE=true || true
+  yesno "$(msg "Enable Folder → Album Sync?" "Folder → Album Sync inschakelen?" "Folder → Album Sync aktivieren?")" Y && ENABLE_FOLDER=true || true
+  yesno "$(msg "Enable Pet Tagger?" "Pet Tagger inschakelen?" "Pet Tagger aktivieren?")" Y && ENABLE_PET=true || true
+  yesno "$(msg "Enable Immich Power Tools?" "Immich Power Tools inschakelen?" "Immich Power Tools aktivieren?")" Y && ENABLE_POWER=true || true
+  yesno "$(msg "Enable Face → Album?" "Face → Album inschakelen?" "Face → Album aktivieren?")" Y && ENABLE_FACE=true || true
   [[ -n "$DEFAULT_URL" ]] && ok "Detected Immich URL: $DEFAULT_URL"
   read -rp "Immich URL used in your browser${DEFAULT_URL:+ [$DEFAULT_URL]}: " BROWSER_URL; BROWSER_URL="${BROWSER_URL:-$DEFAULT_URL}"; BROWSER_URL="${BROWSER_URL%/}"; [[ -n "$BROWSER_URL" ]] || die "Immich URL required."
   INTERNAL_BASE="http://host.docker.internal:${DETECTED_PORT}"
