@@ -1,6 +1,12 @@
 # Changelog
 
-## 1.2.0 (unreleased)
+## 1.3.0 (2026-11-23)
+- Stable installation branch `v1.3.0`; the README one-line installer now points to it.
+- New module **Face → Album** using [romainrbr/immich-face-to-album](https://github.com/romainrbr/immich-face-to-album) (`rbrucker/immich-face-to-album:1.0.17`): auto-updating albums per person or group of people.
+- The installer lists named people and albums through the Immich API, can create a new album and supports several face albums with "any" or "all together" matching.
+- One `facealbums` container syncs all rules (default every 60 minutes, incremental after the first run). Rules are kept on update/unattended update and shown on the dashboard.
+
+## 1.2.0 (not released separately, included in 1.3.0)
 - New `--update --yes` mode for unattended updates (plus `--lang` and `--help`). It never prompts, never stops other apps and never changes `ROOT_PATH`; it only reports problems.
 - Optional TrueNAS cron job `Immich Toolbox auto-update` (weekly or daily), offered at the end of an interactive run and removed together with the Toolbox.
 - Updates now pull the module images again and redeploy only when a container still runs an older image, so floating tags (`pet-tagger:cpu`, `nginx:alpine`) pick up upstream releases.
